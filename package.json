@@ -1,0 +1,10 @@
+{
+  "name": "ps3-picow-webpad",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Phone touchscreen to PS3 DualShock 3 USB controller with Raspberry Pi Pico W",
+  "license": "MIT",
+  "repository": "github:david-bowiegxw/ps3-picow-webpad",
+  "scripts": {"test": "node tools/check.cjs && node tools/test_ui.cjs"},
+  "devDependencies": {"playwright": "1.63.0"}
+}

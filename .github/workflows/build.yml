@@ -1,0 +1,35 @@
+name: Build and test
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm test
+      - run: cc -std=c11 -Wall -Wextra -I src tools/test_packet.c src/packet.c -o /tmp/webpad-packet-test && /tmp/webpad-packet-test
+  firmware:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y cmake gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib
+      - run: |
+          git clone --depth 1 --branch 2.2.0 https://github.com/raspberrypi/pico-sdk.git pico-sdk
+          git -C pico-sdk submodule update --init --depth 1 lib/tinyusb lib/lwip lib/cyw43-driver
+      - run: cmake -S . -B build -DPICO_SDK_PATH="$PWD/pico-sdk" -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build --parallel 4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ps3-picow-firmware
+          path: |
+            build/ps3-picow.uf2
+            LICENSE
+            THIRD_PARTY_NOTICES.md
+            licenses/
+            src/LICENSE-*.txt

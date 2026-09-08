@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="theme-color" content="#10131a">
+<meta name="description" content="PS3 Pico W Webpad: a local touchscreen DualShock 3 controller with dual analog sticks.">
+<title>PS3 Pico W Webpad</title>
+<style>
+*{box-sizing:border-box;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#10131a;color:#e5eaf2;font:14px system-ui;touch-action:none;overscroll-behavior:none}
+#stage{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);background:radial-gradient(ellipse at 50% 65%,#293446,#10131a 70%);overflow:hidden;isolation:isolate}
+#stage.rotated{transform:translate(-50%,-50%) rotate(90deg)}
+#pad{position:absolute;width:800px;height:360px;transform-origin:top left}
+button{touch-action:none;cursor:pointer;color:inherit;border:1px solid #566177;background:linear-gradient(#343f51,#1c222d);font:600 15px system-ui;border-radius:14px;box-shadow:0 4px 0 #080c12;outline-offset:3px}
+button.down{background:#4e709d;border-color:#a1d0ff;box-shadow:0 1px 0 #080c12,inset 0 0 10px #89baff55}
+.shoulder{position:absolute;width:94px;height:42px;top:16px}.l2{left:54px}.l1{left:160px}.r1{right:160px}.r2{right:54px}
+.system{position:absolute;top:100px;left:287px;display:flex;align-items:center;gap:15px}.system button{width:68px;height:32px;font-size:11px;border-radius:20px}.system .ps{width:44px;height:44px;border-radius:50%;color:#a2d2ff;font-size:14px}
+.cluster{position:absolute;top:79px;width:160px;height:160px}.dpad{left:57px}.face{right:57px}
+.cluster button{position:absolute;width:48px;height:48px;font-size:30px;padding:0;border-radius:50%}.dpad button{border-radius:10px;font-size:21px}
+.u{left:56px;top:0}.r{left:112px;top:56px}.d{left:56px;top:112px}.l{left:0;top:56px}
+.tri{color:#7ce2b4}.circle{color:#ff919d}.cross{color:#8cbaff}.square{color:#e9a3dd}
+.stick{position:absolute;top:171px;width:140px;height:140px;border:1px solid #59687e;border-radius:50%;background:radial-gradient(circle,#263244 0 63%,#151c28 65%);box-shadow:inset 0 0 20px #0008;touch-action:none}
+#left{left:231px}#right{right:231px}.stick.active{border-color:#9ccef5}
+.knob{position:absolute;left:40px;top:40px;width:60px;height:60px;border-radius:50%;border:1px solid #8b99af;background:radial-gradient(circle at 38% 30%,#66768d,#2e394a 70%);box-shadow:0 6px 14px #0009;pointer-events:none;will-change:transform}
+.sticklabel{position:absolute;top:314px;color:#8e9bb0;font-size:10px;letter-spacing:1px;text-align:center;width:140px}.leftlabel{left:231px}.rightlabel{right:231px}
+.clickstick{position:absolute;top:269px;width:58px;height:43px;font-size:13px}.lc{left:147px}.rc{right:147px}
+#link{position:absolute;top:23px;left:290px;width:220px;text-align:center;font-size:11px;color:#98a9c2;letter-spacing:.4px}
+#menu{position:absolute;right:17px;bottom:12px;width:52px;height:36px;font-size:20px}#fullscreen{position:absolute;left:17px;bottom:12px;width:70px;height:36px;font-size:12px}
+#overlay{position:absolute;inset:0;background:#0a0e17eF;z-index:5;display:grid;place-items:center}#overlay[hidden]{display:none}.panel{width:490px;border:1px solid #4b5c76;border-radius:20px;background:#192230;padding:18px}.panel h2{margin:0 0 8px;font-size:18px}.panel p{font-size:12px;color:#b1bfd3;line-height:1.5;margin:8px 0}.row{display:flex;gap:8px;margin-top:12px}.row button{flex:1;height:42px;font-size:12px}.panel label{display:flex;align-items:center;gap:10px;margin-top:12px;font-size:12px}.panel input{flex:1;touch-action:pan-x}.panel #back{background:#365d8a}
+</style></head><body>
+<div id="stage"><main id="pad" aria-label="PS3 controller">
+<span id="link" role="status">PS3 · CONNECTING</span>
+<button class="shoulder l2" data-mask="256">L2</button><button class="shoulder l1" data-mask="1024">L1</button><button class="shoulder r1" data-mask="2048">R1</button><button class="shoulder r2" data-mask="512">R2</button>
+<div class="system"><button data-mask="1">SELECT</button><button class="ps" data-mask="65536">PS</button><button data-mask="8">START</button></div>
+<div class="cluster dpad"><button class="u" data-mask="16" aria-label="Up">▲</button><button class="r" data-mask="32" aria-label="Right">▶</button><button class="d" data-mask="64" aria-label="Down">▼</button><button class="l" data-mask="128" aria-label="Left">◀</button></div>
+<div class="cluster face"><button class="u tri" data-mask="4096" aria-label="Triangle">△</button><button class="r circle" data-mask="8192" aria-label="Circle">○</button><button class="d cross" data-mask="16384" aria-label="Cross">×</button><button class="l square" data-mask="32768" aria-label="Square">□</button></div>
+<div class="stick" id="left" aria-label="Left analog stick"><div class="knob"></div></div><div class="stick" id="right" aria-label="Right analog stick"><div class="knob"></div></div>
+<span class="sticklabel leftlabel">LEFT STICK</span><span class="sticklabel rightlabel">RIGHT STICK</span>
+<button class="clickstick lc" data-mask="2">L3</button><button class="clickstick rc" data-mask="4">R3</button>
+<button id="fullscreen">全屏</button><button id="menu" aria-label="Settings">⚙</button>
+<div id="overlay" hidden><section class="panel"><h2>PS3 Pico W Webpad · 0.3</h2><p id="hint">始终使用横屏布局。按住摇杆并滑动，松手回中。可同时操作双摇杆和按钮。</p>
+<label><span id="travelLabel">摇杆行程</span><input id="travel" aria-label="Stick travel" type="range" min="20" max="52" value="36"><output id="travelValue">36</output></label>
+<div class="row"><button id="motion">六轴（实验）</button><button id="vibration">振动：关</button><button id="lang">English</button></div>
+<p id="sensorStatus">六轴需要安全网页环境；本地 HTTP 通常不可用。</p><div class="row"><button id="release">松开全部</button><button id="back">返回手柄</button></div></section></div>
+</main></div>
+<script>
+'use strict';
+const stage=document.querySelector('#stage'),pad=document.querySelector('#pad'),overlay=document.querySelector('#overlay');
+const axes={lx:128,ly:128,rx:128,ry:128},motion={ax:512,ay:512,az:512,gz:512};
+const held=new Map(),taps=new Map(),sticks=[],buttons=[...document.querySelectorAll('[data-mask]')];
+let rotated=false,scale=1,offsetX=0,offsetY=0,serial=0,inflight=false,pending=false,timer,enabled=true,haptics=false,lastRumble=-1,travel=36,english=false;
+let motionBase=null,motionTime=0,motionListening=false,sensorTimer;
+function mask(){let m=0;held.forEach(v=>m|=v);taps.forEach(v=>m|=v);return m;}
+function paint(){const m=mask();buttons.forEach(b=>b.classList.toggle('down',!!(m&Number(b.dataset.mask))));}
+function localPoint(event){const r=stage.getBoundingClientRect();const x=rotated?event.clientY-r.top:event.clientX-r.left;const y=rotated?r.right-event.clientX:event.clientY-r.top;return {x:(x-offsetX)/scale,y:(y-offsetY)/scale};}
+function releaseAll(){held.clear();taps.clear();sticks.forEach(s=>s.reset());Object.keys(motion).forEach(k=>motion[k]=512);paint();schedule();}
+function layout(){releaseAll();const w=window.innerWidth,h=window.innerHeight;rotated=h>w;const sw=Math.max(w,h),sh=Math.min(w,h);stage.style.width=sw+'px';stage.style.height=sh+'px';stage.classList.toggle('rotated',rotated);scale=Math.min((sw-24)/800,(sh-16)/360);offsetX=(sw-800*scale)/2;offsetY=(sh-360*scale)/2;pad.style.left=offsetX+'px';pad.style.top=offsetY+'px';pad.style.transform='scale('+scale+')';}
+buttons.forEach(button=>{
+ button.addEventListener('pointerdown',e=>{if(!enabled)return;e.preventDefault();button.setPointerCapture(e.pointerId);held.set(e.pointerId,+button.dataset.mask);taps.set(++serial,+button.dataset.mask);paint();schedule();});
+ const end=e=>{held.delete(e.pointerId);paint();schedule();};
+ button.addEventListener('pointerup',end);button.addEventListener('pointercancel',end);button.addEventListener('lostpointercapture',end);
+});
+function axis(v){return Math.round(v<0?128+v*128:128+v*127);}
+['left','right'].forEach(side=>{
+ const area=document.getElementById(side),knob=area.querySelector('.knob');const xKey=side==='left'?'lx':'rx',yKey=side==='left'?'ly':'ry';
+ let pointer=null,origin=null;
+ function reset(){pointer=null;origin=null;axes[xKey]=axes[yKey]=128;knob.style.transform='translate(0,0)';area.classList.remove('active');}
+ function move(e){if(pointer!==e.pointerId||!enabled)return;e.preventDefault();const p=localPoint(e);let x=(p.x-origin.x)/travel,y=(p.y-origin.y)/travel;const len=Math.hypot(x,y);if(len>1){x/=len;y/=len;}axes[xKey]=axis(x);axes[yKey]=axis(y);knob.style.transform='translate('+(x*36)+'px,'+(y*36)+'px)';schedule();}
+ area.addEventListener('pointerdown',e=>{if(pointer!==null||!enabled)return;e.preventDefault();pointer=e.pointerId;origin=localPoint(e);area.setPointerCapture(pointer);area.classList.add('active');schedule();});
+ area.addEventListener('pointermove',move);
+ const end=e=>{if(e.pointerId===pointer){reset();schedule();}};
+ area.addEventListener('pointerup',end);area.addEventListener('pointercancel',end);area.addEventListener('lostpointercapture',end);sticks.push({reset});
+});
+function stateURL(){return '/state?m='+mask()+Object.entries(axes).map(([k,v])=>'&'+k+'='+v).join('')+Object.entries(motion).map(([k,v])=>'&'+k+'='+v).join('');}
+function vibrate(value){try{if(navigator.vibrate)navigator.vibrate(value);}catch(_){} }
+function schedule(){pending=true;if(!inflight){clearTimeout(timer);timer=setTimeout(send,0);}}
+async function send(){
+ if(inflight||document.hidden)return;inflight=true;pending=false;
+ const sentSerial=serial,controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),300),start=performance.now();
+ try{const response=await fetch(stateURL(),{cache:'no-store',signal:controller.signal});if(!response.ok)throw Error('HTTP');const data=await response.json();
+  taps.forEach((v,k)=>{if(k<=sentSerial){taps.delete(k);pending=true;}});paint();
+  document.querySelector('#link').textContent='PS3 · '+(data.usb?'USB':'NO USB')+' · '+Math.round(performance.now()-start)+' ms';
+  if(lastRumble!==data.q){lastRumble=data.q;if(haptics)vibrate(data.l||data.r?80:0);}
+ }catch(_){held.clear();taps.clear();sticks.forEach(s=>s.reset());paint();document.querySelector('#link').textContent='PS3 · RECONNECTING';}
+ finally{clearTimeout(timeout);inflight=false;timer=setTimeout(send,pending?0:50);}
+}
+function pause(){enabled=false;releaseAll();vibrate(0);}
+window.addEventListener('blur',pause);window.addEventListener('focus',()=>{enabled=!overlay.hidden?false:true;schedule();});window.addEventListener('pagehide',pause);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();else{enabled=overlay.hidden;schedule();}});
+window.addEventListener('resize',layout);
+for(const type of ['contextmenu','selectstart','dragstart','gesturestart'])document.addEventListener(type,e=>e.preventDefault(),{passive:false});
+document.querySelector('#menu').onclick=()=>{pause();overlay.hidden=false;};
+document.querySelector('#back').onclick=()=>{overlay.hidden=true;enabled=true;schedule();};
+document.querySelector('#release').onclick=releaseAll;
+document.querySelector('#travel').oninput=e=>{travel=+e.target.value;document.querySelector('#travelValue').textContent=travel;};
+document.querySelector('#fullscreen').onclick=async()=>{try{if(document.documentElement.requestFullscreen)await document.documentElement.requestFullscreen();}catch(_){}try{if(screen.orientation?.lock)await screen.orientation.lock('landscape');}catch(_){}layout();};
+function sensorText(text){document.querySelector('#sensorStatus').textContent=text;}
+function onMotion(e){if(!enabled)return;const a=e.accelerationIncludingGravity;if(!a||![a.x,a.y,a.z].every(Number.isFinite))return;if(!motionBase)motionBase={x:a.x,y:a.y,z:a.z};motionTime=Date.now();let x=a.x-motionBase.x,y=a.y-motionBase.y;const angle=((screen.orientation?.angle||window.orientation||0)+(rotated?90:0))*Math.PI/180;const clamp=v=>Math.max(0,Math.min(1023,Math.round(v)));motion.ax=clamp(512+(x*Math.cos(angle)-y*Math.sin(angle))*26.1);motion.ay=clamp(512+(x*Math.sin(angle)+y*Math.cos(angle))*26.1);motion.az=clamp(512+(a.z-motionBase.z)*26.1);motion.gz=clamp(512+(Number.isFinite(e.rotationRate?.alpha)?e.rotationRate.alpha:0)*5.12);sensorText(english?'Experimental motion data received':'已收到传感器数据（实验映射）');schedule();}
+document.querySelector('#motion').onclick=async()=>{releaseAll();motionBase=null;motionTime=0;clearTimeout(sensorTimer);try{if(!window.isSecureContext)throw Error(english?'HTTPS required; local HTTP cannot access sensors':'需要 HTTPS；本地 HTTP 无法访问传感器');if(typeof DeviceMotionEvent==='undefined')throw Error('Sensor API unavailable');if(DeviceMotionEvent.requestPermission&&await DeviceMotionEvent.requestPermission()!=='granted')throw Error('Permission denied');if(!motionListening){window.addEventListener('devicemotion',onMotion);motionListening=true;}sensorText(english?'Return to controller to calibrate':'返回手柄后保持姿势进行校准');sensorTimer=setTimeout(()=>{if(!motionTime)sensorText(english?'No sensor data received':'未收到传感器数据');},4000);}catch(e){sensorText(e.message);}};
+document.querySelector('#vibration').onclick=e=>{if(!navigator.vibrate){sensorText(english?'This browser has no vibration API':'此浏览器不支持网页振动');return;}haptics=!haptics;vibrate(haptics?30:0);e.target.textContent=(english?'Vibration: ':'振动：')+(haptics?'ON':'OFF');};
+document.querySelector('#lang').onclick=()=>{english=!english;document.documentElement.lang=english?'en':'zh-CN';for(const [id,zh,en] of [['fullscreen','全屏','Fullscreen'],['hint','始终使用横屏布局。按住摇杆并滑动，松手回中。可同时操作双摇杆和按钮。','Always landscape. Touch a stick and drag; release to center. Multi-touch supported.'],['travelLabel','摇杆行程','Stick travel'],['motion','六轴（实验）','Motion (experimental)'],['release','松开全部','Release all'],['back','返回手柄','Back'],['lang','English','中文']])document.getElementById(id).textContent=english?en:zh;document.querySelector('#vibration').textContent=(english?'Vibration: ':'振动：')+(haptics?'ON':'OFF');sensorText(english?'Motion generally requires HTTPS; local HTTP is unsupported.':'六轴需要安全网页环境；本地 HTTP 通常不可用。');};
+layout();
+</script></body></html>
