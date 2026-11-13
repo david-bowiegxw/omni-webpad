@@ -1,0 +1,22 @@
+menu "OmniWebPad"
+
+    config OMNIWEBPAD_BUTTON_GPIO
+        int "Factory reset button GPIO (-1 disables)"
+        default 9 if IDF_TARGET_ESP32C3 || IDF_TARGET_ESP32C6
+        default 0
+        help
+            Active-low button, normally the BOOT button of the dev board.
+            Holding it for five seconds restores the default settings.
+
+    config OMNIWEBPAD_LED_GPIO
+        int "Status LED GPIO (-1 disables)"
+        default -1
+        help
+            Plain (not addressable) LED: on while a host is connected,
+            blinking while waiting.
+
+    config OMNIWEBPAD_LED_ACTIVE_LOW
+        bool "Status LED is active low"
+        default n
+
+endmenu

@@ -2,10 +2,13 @@ build*/
 dist/
 pico-sdk/
 node_modules/
+managed_components/
+dependencies.lock
+sdkconfig
+sdkconfig.old
 __pycache__/
 .DS_Store
 *.uf2
 *.bin
 *.elf
 *.map
-src/web_content.h
