@@ -184,7 +184,12 @@ async function settingsTests(browser, simulator) {
   assert.equal(await page.locator('.mode').count(), 8);
   assert(await page.locator('.mode', {hasText: 'Bluetooth'}).isDisabled(), 'BLE is not offered on a USB-only board');
   assert(await page.locator('#applyMode').isDisabled());
-  if (shots) await page.screenshot({path: path.join(root, 'docs/settings.png')});
+  if (shots) {
+    await page.screenshot({path: path.join(root, 'docs/settings.zh-CN.png')});
+    await page.locator('#lang').tap();
+    await page.screenshot({path: path.join(root, 'docs/settings.png')});
+    await page.locator('#lang').tap();
+  }
 
   // Rejected input is reported and changes nothing.
   await page.locator('#pass').fill('short');

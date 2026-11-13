@@ -181,9 +181,13 @@ void usb_link_task(void) {
     uint32_t now = plat_millis();
     if (tud_suspended()) {
         // Any pressed button wakes a sleeping host, like a real pad.
+        static uint32_t last_wake;
         pad_state_t peek;
         app_next_state(&peek);
-        if (peek.buttons) tud_remote_wakeup();
+        if (peek.buttons && now - last_wake >= 100) {
+            last_wake = now;
+            tud_remote_wakeup();
+        }
         return;
     }
     if (now - last_send < app_mode->interval_ms || !tud_ready()) return;

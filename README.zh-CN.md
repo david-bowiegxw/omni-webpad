@@ -19,11 +19,11 @@
 | **Xbox 360**（XInput） | Windows（原生）、Steam、Linux、Android、绝大多数模拟器 | Xbox 360 / One / Series 主机——它们要求安全芯片握手 | 振动、玩家指示灯 |
 | **Switch 有线手柄**（HORI Pokkén 布局） | Nintendo Switch（需开启“Pro 手柄的有线连接”）、PC | 体感、振动、NFC | — |
 | **DualShock 4** | Windows/Steam、Linux、Android、macOS；PS4 上每次约 8 分钟 | 在 PS4 上长时间使用——主机会断开无法通过签名认证的非授权手柄 | 振动、灯条颜色 |
-| **DualSense** | Steam、Linux、Android 12+、macOS、iOS | PS5 主机（只接受授权手柄） | 振动、玩家指示灯、灯条颜色 |
+| **DualSense** | Steam、Linux、Android 12+、macOS | PS5 主机（只接受授权手柄） | 振动、玩家指示灯、灯条颜色 |
 | **DualShock 3** | PlayStation 3、PC | — | 振动、玩家指示灯 |
 | **初代 Xbox** | 初代 Xbox（需手柄口转 USB 线） | — | 振动 |
 | **通用手柄**（HID） | Android、Linux、macOS、ChromeOS、Windows（DirectInput） | — | — |
-| **蓝牙手柄**（BLE HID） | Windows、Android、iOS/iPadOS、macOS、Linux、Steam Deck，无需数据线 | 游戏主机 | — |
+| **蓝牙手柄**（BLE HID） | Windows、Android、Linux、Steam Deck、macOS，无需数据线 | 游戏主机；iOS/iPadOS（苹果只接受特定型号的手柄） | — |
 
 按键按**位置**映射：下方的动作键永远是下方那颗（✕ / A / Switch 的 B）。界面会根据当前手柄类型自动更换键名与配色。
 
@@ -92,7 +92,7 @@ Wi-Fi 名称和密码也在同一页修改；任何连上这个热点的人都�
 
 ## 触屏界面
 
-![设置页：手柄类型选择](docs/settings.png)
+![设置页：手柄类型选择](docs/settings.zh-CN.png)
 
 - **皮肤**：Xbox、PlayStation、Switch 与通用手柄各有对应的符号、配色和键名（LB/RT、ZL/ZR、SHARE/OPTIONS、−/+、截图、触摸板按压）。
 - **十字键是一整块触控区**：八个方向，手指不离屏即可滑动换向。

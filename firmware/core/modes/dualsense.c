@@ -1,5 +1,5 @@
 // Sony DualSense (CFI-ZCT1). For PCs and phones: Steam, SDL, Linux
-// hid-playstation, Android 12+, macOS/iOS. A PS5 console does not accept
+// hid-playstation, Android 12+, macOS. A PS5 console does not accept
 // unlicensed controllers, so this personality is not for consoles.
 #include "../mode.h"
 #include <string.h>
@@ -92,7 +92,7 @@ static void reset(void) { sequence = 0; }
 
 const pad_mode_t mode_dualsense = {
     .id = "dualsense", .name = "DualSense", .family = "ps",
-    .hosts = "PC, Steam, Android, macOS, iOS",
+    .hosts = "PC, Steam, Android, macOS",
     .link = PAD_LINK_USB_HID,
     .device_desc = device_desc, .config_desc = config_desc, .config_len = sizeof(config_desc),
     .report_desc = report_desc, .report_desc_len = sizeof(report_desc),

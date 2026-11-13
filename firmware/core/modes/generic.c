@@ -61,7 +61,7 @@ const pad_mode_t mode_hid = {
 
 const pad_mode_t mode_ble = {
     .id = "ble", .name = "Bluetooth gamepad", .family = "generic",
-    .hosts = "Windows, Android, iOS, macOS, Linux, Steam Deck",
+    .hosts = "Windows, Android, Linux, Steam Deck, macOS",
     .link = PAD_LINK_BLE_HID,
     .report_desc = pad_ble_report_desc, .report_desc_len = sizeof(pad_ble_report_desc),
     .manufacturer = "OmniWebPad", .product = "OmniWebPad",

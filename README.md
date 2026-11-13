@@ -23,11 +23,11 @@ Formerly *PS3 Pico W Webpad*. Version 0.4 keeps the PS3 controller and adds seve
 | **Xbox 360** (XInput) | Windows (native), Steam, Linux, Android, most emulators | Xbox 360 / One / Series consoles — they demand a security-chip handshake | Rumble, player LED |
 | **Switch wired pad** (HORI Pokkén layout) | Nintendo Switch with *Pro Controller Wired Communication* on, PC | Motion, rumble, NFC | — |
 | **DualShock 4** | Windows/Steam, Linux, Android, macOS; PS4 for about 8 minutes at a time | Lasting PS4 use — the console drops unlicensed pads without a signed reply | Rumble, light bar colour |
-| **DualSense** | Steam, Linux, Android 12+, macOS, iOS | PS5 console (licensed controllers only) | Rumble, player LEDs, light bar colour |
+| **DualSense** | Steam, Linux, Android 12+, macOS | PS5 console (licensed controllers only) | Rumble, player LEDs, light bar colour |
 | **DualShock 3** | PlayStation 3, PC | — | Rumble, player LED |
 | **Xbox (original)** | Original Xbox through a controller-port-to-USB cable | — | Rumble |
 | **Generic gamepad** (HID) | Android, Linux, macOS, ChromeOS, Windows (DirectInput) | — | — |
-| **Bluetooth gamepad** (BLE HID) | Windows, Android, iOS/iPadOS, macOS, Linux, Steam Deck — no cable | Consoles | — |
+| **Bluetooth gamepad** (BLE HID) | Windows, Android, Linux, Steam Deck, macOS — no cable | Consoles; iOS/iPadOS (Apple only accepts specific controller models) | — |
 
 Buttons are mapped by position: the bottom face button is always the bottom face button (✕ / A / Switch B). The page relabels and recolours itself for the active controller.
 
