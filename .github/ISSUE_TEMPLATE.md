@@ -1,16 +1,20 @@
-## Problem / 问题
+## Problem or result / 问题或测试结果
 
-## Reproduce / 复现步骤
+## Steps / 复现步骤
 
 ## Environment / 环境
 
 - Firmware version / 固件版本:
 - Board / 开发板:
-- PS3 model / 主机型号:
+- Controller type / 手柄类型:
+- Host: console model or OS and game / 主机型号，或操作系统与游戏:
 - Phone and browser / 手机与浏览器:
-- Portrait or landscape / 横竖屏:
-- Request RTT / 请求延迟:
 
-## Expected and actual / 预期与实际
+## Diagnostics / 诊断信息
 
-Do not attach console flash dumps or account credentials. / 请勿上传主机 Flash 备份或账号凭据。
+Paste the output of ⚙ → Diagnostics. / 请粘贴 ⚙ → 诊断信息 的内容。
+
+```json
+```
+
+Do not attach console flash dumps, account credentials or Wi-Fi passwords. / 请勿上传主机 Flash 备份、账号凭据或 Wi-Fi 密码。

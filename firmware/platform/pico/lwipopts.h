@@ -7,4 +7,7 @@
 // This example uses a common include to avoid repetition
 #include "lwipopts_examples_common.h"
 
+// One listener plus the eight client slots in main.c.
+#define MEMP_NUM_TCP_PCB 10
+
 #endif

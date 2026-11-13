@@ -39,6 +39,7 @@ static int access_cb(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt
     static const uint8_t pnp_id[] = {0x02, 0x09, 0x12, 0x01, 0x00, 0x00, 0x01};
     static const uint8_t hid_info[] = {0x11, 0x01, 0x00, 0x02};      // HID 1.11, normally connectable
     static const uint8_t battery = 100, protocol_mode = 1;           // report protocol
+    static const uint8_t report_reference[] = {0x01, 0x01};          // report ID 1, input
     const void *data = NULL;
     uint16_t len = 0;
     if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR || ctxt->op == BLE_GATT_ACCESS_OP_WRITE_DSC) return 0;
@@ -50,7 +51,7 @@ static int access_cb(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt
         case CHR_REPORT_MAP: data = pad_ble_report_desc; len = pad_ble_report_desc_len; break;
         case CHR_PROTOCOL_MODE: data = &protocol_mode; len = 1; break;
         case CHR_INPUT_REPORT: data = last_report; len = PAD_GENERIC_REPORT_LEN; break;
-        case DSC_REPORT_REFERENCE: data = (const uint8_t[]){0x01, 0x01}; len = 2; break;   // report ID 1, input
+        case DSC_REPORT_REFERENCE: data = report_reference; len = sizeof(report_reference); break;
         default: return BLE_ATT_ERR_UNLIKELY;
     }
     return os_mbuf_append(ctxt->om, data, len) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;

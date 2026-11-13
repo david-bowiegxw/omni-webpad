@@ -161,8 +161,8 @@ void app_main(void) {
     app_init();
     gpio_setup();
     wifi_start();
-    bool usb_mode = HAVE_USB && app_mode && app_mode->link != PAD_LINK_BLE_HID;
 #if HAVE_USB
+    bool usb_mode = app_mode && app_mode->link != PAD_LINK_BLE_HID;
     if (usb_mode) usb_start();
 #endif
     if (app_mode && app_mode->link == PAD_LINK_BLE_HID) ble_link_start();

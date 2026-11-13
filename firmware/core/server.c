@@ -30,7 +30,9 @@ static const char *reason(int status) {
 static bool respond(server_conn_t *c, int status, const char *type, const void *body, unsigned len,
                     bool gzip, bool is_static) {
     char head[224];
-    bool keep = status == 200;
+    // Only the polling endpoint is hit repeatedly; everything else frees its
+    // connection slot straight away.
+    bool keep = status == 200 && c->keep_alive;
     int n = snprintf(head, sizeof(head),
                      "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %u\r\n%s"
                      "Cache-Control: no-store\r\nConnection: %s\r\n\r\n",
@@ -166,6 +168,7 @@ static bool route_state(server_conn_t *c, const char *query) {
     }
     app_input(&state);
     controller = NULL;
+    c->keep_alive = true;
     char body[96];
     snprintf(body, sizeof(body), "{\"usb\":%s,\"l\":%u,\"r\":%u,\"q\":%lu}",
              plat_link_connected() ? "true" : "false", pad_feedback.rumble_strong,
@@ -288,6 +291,7 @@ static bool process_http(server_conn_t *c, bool *progress) {
     if (header_value((char *)c->buffer, "content-length", number, sizeof(number))) body_len = strtoul(number, NULL, 10);
     if (body_len > SERVER_BUFFER - head_len) { respond_error(c, 413, "request too large"); return true; }
     if (c->used < head_len + body_len) { *end = '\r'; return true; }
+    c->keep_alive = false;
     if (!route(c, (char *)c->buffer)) return false;
     unsigned consumed = head_len + (unsigned)body_len;
     memmove(c->buffer, c->buffer + consumed, c->used - consumed);

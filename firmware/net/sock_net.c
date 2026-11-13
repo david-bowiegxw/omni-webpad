@@ -10,7 +10,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 
-#define MAX_CLIENTS 6
+#define MAX_CLIENTS 8
 #define IDLE_TIMEOUT_MS 10000
 #define SEND_TIMEOUT_MS 2000
 
@@ -88,9 +88,15 @@ void sock_net_stop(void) {
 static void accept_client(void) {
     int fd = accept(listener, NULL, NULL), yes = 1;
     if (fd < 0) return;
-    client_t *c = NULL;
-    for (unsigned i = 0; i < MAX_CLIENTS && !c; i++)
+    client_t *c = NULL, *stale = NULL;
+    for (unsigned i = 0; i < MAX_CLIENTS && !c; i++) {
         if (clients[i].fd < 0) c = &clients[i];
+        else if (!clients[i].conn.websocket && (!stale || clients[i].last_activity < stale->last_activity)) stale = &clients[i];
+    }
+    if (!c && stale) {            // browsers park idle connections; a new one matters more
+        drop(stale);
+        c = stale;
+    }
     if (!c) { close(fd); return; }
     fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));

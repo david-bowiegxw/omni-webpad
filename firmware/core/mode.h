@@ -77,5 +77,5 @@ void pad_generic_build(const pad_state_t *in, uint32_t now_ms, uint8_t *out);
     9, 0x02, USB_LE16(USB_HID_CONFIG_LEN), 1, 1, 0, attributes, 250, \
     9, 0x04, 0, 0, 2, 0x03, 0, 0, 0, \
     9, 0x21, USB_LE16(0x0111), 0, 1, 0x22, USB_LE16(report_len), \
-    7, 0x05, 0x81, 0x03, USB_LE16(64), interval, \
-    7, 0x05, 0x02, 0x03, USB_LE16(64), interval
+    7, 0x05, 0x02, 0x03, USB_LE16(64), interval, \
+    7, 0x05, 0x81, 0x03, USB_LE16(64), interval

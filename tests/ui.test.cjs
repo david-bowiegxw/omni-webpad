@@ -2,6 +2,7 @@
 // real controller reports. Run with `npm test` after building the simulator.
 const {chromium} = require('playwright');
 const {spawn} = require('node:child_process');
+const net = require('node:net');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -263,6 +264,12 @@ async function fallbackTests(browser, simulator) {
     await until(() => simulator.mode === 'xinput' && bleOnly.mode === 'ble', 'simulators');
     for (const [w, h] of [[844, 390], [390, 844], [667, 375], [375, 667], [568, 320], [320, 568], [932, 430], [1024, 768]])
       await controllerTests(browser, simulator, w, h);
+    // Idle connections parked by a browser must never lock the page out.
+    const parked = [];
+    for (let i = 0; i < 12; i++) parked.push(await new Promise((resolve, reject) => { const s = net.connect(18787, '127.0.0.1', () => resolve(s)); s.on('error', reject); }));
+    assert.equal((await fetch(simulator.url + 'api/info')).status, 200);
+    parked.forEach(s => s.destroy());
+    console.log('connection slots: 12 parked sockets do not block a new request PASS');
     await settingsTests(browser, simulator);
     await fallbackTests(browser, simulator);
     const info = await (await fetch(bleOnly.url + 'api/info')).json();

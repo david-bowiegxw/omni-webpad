@@ -18,7 +18,7 @@
 #include "usb_link.h"
 #include <string.h>
 
-#define MAX_CLIENTS 6
+#define MAX_CLIENTS 8
 #define IDLE_TIMEOUT_MS 10000
 #define SETTINGS_OFFSET (PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE)
 #define FACTORY_RESET_HOLD_MS 5000
@@ -171,9 +171,15 @@ static err_t on_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err) 
 
 static err_t on_accept(void *arg, struct tcp_pcb *pcb, err_t err) {
     (void)arg;
-    client_t *c = NULL;
-    for (unsigned i = 0; i < MAX_CLIENTS && !c; i++)
+    client_t *c = NULL, *stale = NULL;
+    for (unsigned i = 0; i < MAX_CLIENTS && !c; i++) {
         if (!clients[i].pcb) c = &clients[i];
+        else if (!clients[i].conn.websocket && (!stale || clients[i].last_activity < stale->last_activity)) stale = &clients[i];
+    }
+    if (err == ERR_OK && !c && stale) {   // browsers park idle connections; a new one matters more
+        finish(stale, true);
+        c = stale;
+    }
     if (err != ERR_OK || !c) {
         tcp_abort(pcb);
         return ERR_ABRT;

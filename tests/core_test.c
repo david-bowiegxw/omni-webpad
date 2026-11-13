@@ -111,6 +111,18 @@ static void test_descriptors(void) {
         if (m->link == PAD_LINK_USB_HID) assert(hid_len == m->report_desc_len);
         else assert(!m->report_desc);
     }
+    // DualShock 3 must stay byte-identical to the console-tested 0.x firmware.
+    static const uint8_t ds3_device[18] = {18, 1, 0x00, 0x02, 0, 0, 0, 64, 0x4c, 0x05, 0x68, 0x02, 0x00, 0x01, 1, 2, 0, 1};
+    static const uint8_t ds3_config[41] = {
+        9, 2, 41, 0, 1, 1, 0, 0xa0, 250,
+        9, 4, 0, 0, 2, 3, 0, 0, 0,
+        9, 0x21, 0x11, 0x01, 0, 1, 0x22, 148, 0,
+        7, 5, 0x02, 3, 64, 0, 1,
+        7, 5, 0x81, 3, 64, 0, 1};
+    const pad_mode_t *ds3 = pad_mode_find("ds3");
+    assert(ds3->report_desc_len == 148 && ds3->config_len == 41);
+    assert(memcmp(ds3->device_desc, ds3_device, 18) == 0 && memcmp(ds3->config_desc, ds3_config, 41) == 0);
+    assert(strcmp(ds3->manufacturer, "Sony") == 0 && strcmp(ds3->product, "PLAYSTATION(R)3 Controller") == 0);
     puts("descriptors: lengths, report sizes and endpoints PASS");
 }
 
@@ -336,11 +348,18 @@ static void test_server(void) {
     // Requests split at every byte boundary, and two pipelined requests.
     reset_output();
     const char *info = "GET /api/info HTTP/1.1\r\nHost: x\r\n\r\n";
+    server_open(&c, &io);
     for (const char *p = info; *p; p++) assert(server_feed(&c, (const uint8_t *)p, 1));
     assert(strstr((char *)sent, "\"mode\":\"xinput\"") && strstr((char *)sent, "\"id\":\"dualsense\"") && sent[sent_len - 1] == '}');
-    reset_output();
-    assert(feed(&c, "GET /api/status HTTP/1.1\r\n\r\nGET /nothing HTTP/1.1\r\n\r\n"));
-    assert(strstr((char *)sent, "\"log\":[") && strstr((char *)sent, "404 Not Found") && close_seen);
+    assert(close_seen && strstr((char *)sent, "Connection: close"));   // one-shot requests free their slot
+    server_open(&c, &io); reset_output();
+    assert(feed(&c, "GET /api/status HTTP/1.1\r\n\r\n"));
+    assert(strstr((char *)sent, "\"log\":[") && close_seen);
+    // The polling endpoint keeps its connection, also for pipelined requests.
+    server_open(&c, &io); reset_output();
+    assert(feed(&c, "GET /state?m=1 HTTP/1.1\r\n\r\nGET /state?m=2 HTTP/1.1\r\n\r\nGET /nothing HTTP/1.1\r\n\r\n"));
+    assert(strstr((char *)sent, "Connection: keep-alive") && strstr((char *)sent, "404 Not Found") && close_seen);
+    app_release();
 
     // Legacy polling endpoint.
     server_open(&c, &io); reset_output();

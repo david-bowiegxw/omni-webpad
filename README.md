@@ -1,113 +1,178 @@
-# PS3 Pico W Webpad — Phone to DualShock 3 USB Controller
+# OmniWebPad — your phone as an Xbox, PlayStation, Switch or Bluetooth controller
 
-[简体中文](README.zh-CN.md) · [Download firmware](https://github.com/david-bowiegxw/ps3-picow-webpad/releases) · [Report a bug](https://github.com/david-bowiegxw/ps3-picow-webpad/issues)
+[简体中文](README.zh-CN.md) · [Download firmware](https://github.com/david-bowiegxw/omni-webpad/releases) · [Report a bug](https://github.com/david-bowiegxw/omni-webpad/issues)
 
-![Build](https://github.com/david-bowiegxw/ps3-picow-webpad/actions/workflows/build.yml/badge.svg)
+![Build](https://github.com/david-bowiegxw/omni-webpad/actions/workflows/build.yml/badge.svg)
 ![License: MIT](https://img.shields.io/badge/project_license-MIT-blue.svg)
-![Board: Pico W](https://img.shields.io/badge/board-Raspberry_Pi_Pico_W-c51a4a.svg)
+![Boards](https://img.shields.io/badge/boards-Pico_W_·_Pico_2_W_·_ESP32--S2/S3/C3/C6-c51a4a.svg)
 
-**Turn a phone browser and a Raspberry Pi Pico W into a wired PS3 controller.** The phone connects to the Pico W's Wi-Fi access point. The Pico W presents a DualShock 3 style USB device to the PlayStation 3. No phone app, soldering, PSN login, or internet connection is needed for basic controls.
+**A cheap Wi-Fi dev board plugs into a console or PC and pretends to be a controller. Your phone's browser is the touchscreen.** No app, no soldering, no internet, no account. Pick which controller the board impersonates from the settings page — it restarts as that pad in a couple of seconds.
 
-![Phone touchscreen PS3 controller with D-pad, face buttons and dual analog sticks](docs/controller-landscape.png)
-
-Browser preview with simulated USB status; the displayed RTT is not a hardware benchmark.
+![Touchscreen controller with the Xbox skin](docs/controller-xbox.png)
 
 ```text
-Phone touchscreen → local Wi-Fi → Pico W → USB data cable → PS3
+Phone browser ──Wi-Fi──▶ Pico W / ESP32 ──USB or Bluetooth LE──▶ console · PC · phone · tablet
 ```
 
-This is an experimental touchscreen controller and recovery-menu helper, not a Bluetooth controller emulator. It sends inputs; it does not stream the PS3 display to your phone.
+Formerly *PS3 Pico W Webpad*. Version 0.4 keeps the PS3 controller and adds seven more, five more boards and a rebuilt interface.
 
-## Features
+## Controllers it can be
 
-- Landscape controller layout even when browser orientation is locked: portrait view rotates the whole pad, including touch coordinates.
-- D-pad on the upper left, △ ○ × □ on the upper right, two analog sticks below and toward the center, shoulder buttons across the top, SELECT / PS / START in the center.
-- Independent multi-touch sticks with a touch-relative origin, adjustable travel, and immediate local visual feedback. Separate L3/R3 buttons do not cover the sticks.
-- All 17 DS3 digital buttons, including PS and simultaneous START + SELECT.
-- Short taps retained until acknowledged; latest-state requests coalesced instead of queuing every move; HTTP keep-alive on the board.
-- Button long-press selection/context menus suppressed; release on blur, cancellation, or disconnect. Firmware resets inputs after 400 ms without commands.
-- English and Chinese UI; optional browser fullscreen with a CSS rotation fallback.
-- Experimental motion-report mapping and simplified vibration feedback, subject to browser restrictions below.
+| Controller type | Works with | Not for | Feedback shown on the phone |
+| --- | --- | --- | --- |
+| **Xbox 360** (XInput) | Windows (native), Steam, Linux, Android, most emulators | Xbox 360 / One / Series consoles — they demand a security-chip handshake | Rumble, player LED |
+| **Switch wired pad** (HORI Pokkén layout) | Nintendo Switch with *Pro Controller Wired Communication* on, PC | Motion, rumble, NFC | — |
+| **DualShock 4** | Windows/Steam, Linux, Android, macOS; PS4 for about 8 minutes at a time | Lasting PS4 use — the console drops unlicensed pads without a signed reply | Rumble, light bar colour |
+| **DualSense** | Steam, Linux, Android 12+, macOS, iOS | PS5 console (licensed controllers only) | Rumble, player LEDs, light bar colour |
+| **DualShock 3** | PlayStation 3, PC | — | Rumble, player LED |
+| **Xbox (original)** | Original Xbox through a controller-port-to-USB cable | — | Rumble |
+| **Generic gamepad** (HID) | Android, Linux, macOS, ChromeOS, Windows (DirectInput) | — | — |
+| **Bluetooth gamepad** (BLE HID) | Windows, Android, iOS/iPadOS, macOS, Linux, Steam Deck — no cable | Consoles | — |
 
-## Tested status — read before flashing
+Buttons are mapped by position: the bottom face button is always the bottom face button (✕ / A / Switch B). The page relabels and recolours itself for the active controller.
 
-| Item | Evidence / limitation |
+<p>
+<img src="docs/controller-ps.png" alt="PlayStation skin" width="49%">
+<img src="docs/controller-switch.png" alt="Switch skin" width="49%">
+</p>
+
+## Boards
+
+| Board | Firmware file | USB controllers | Bluetooth gamepad |
+| --- | --- | :---: | :---: |
+| Raspberry Pi **Pico W** (RP2040) | `omniwebpad-pico_w.uf2` | ✅ | — |
+| Raspberry Pi **Pico 2 W** (RP2350) | `omniwebpad-pico2_w.uf2` | ✅ | — |
+| **ESP32-S3** | `omniwebpad-esp32s3.bin` | ✅ | ✅ |
+| **ESP32-S2** | `omniwebpad-esp32s2.bin` | ✅ | — (no Bluetooth radio) |
+| **ESP32-C6** | `omniwebpad-esp32c6.bin` | — | ✅ |
+| **ESP32-C3** | `omniwebpad-esp32c3.bin` | — | ✅ |
+| **ESP32** (classic WROOM/WROVER) | `omniwebpad-esp32.bin` | — | ✅ |
+
+The C6, C3 and classic ESP32 have no USB device controller — their USB port is a serial/JTAG bridge that cannot enumerate as a gamepad — so they offer the Bluetooth gamepad only. For consoles you need a Pico W, Pico 2 W, ESP32-S2 or ESP32-S3. On an S2/S3 dev board with two connectors, use the one labelled **USB** (native), not **UART**/**COM**.
+
+## What has actually been tested
+
+This project is honest about the gap between "compiles" and "works on your console".
+
+| Area | Evidence |
 | --- | --- |
-| v0.1 USB enumeration and recovery controls | User-tested on a CECHL00 PS3, including system recovery |
-| v0.2 phone interface | User reported overlaps, portrait layout problems, and awkward sticks; superseded |
-| v0.3 layout and touch controls | Automated mobile-size browser tests and host packet tests; firmware cross-compiled |
-| v0.3 on-console gameplay and latency | Needs hardware testing; browser request RTT is not end-to-end input latency |
-| Sixaxis motion | Experimental 3 acceleration fields + 1 gyro field; axis/calibration fidelity unverified on a PS3 |
-| Rumble | Changes in PS3 output produce short phone vibration pulses where supported; not continuous dual-motor reproduction |
-| Supported board | Original **Raspberry Pi Pico W (RP2040)**; Pico 2 W / non-W boards / ESP32 builds are not provided |
+| Firmware core: every controller's report layout, USB descriptors, feature/control requests, tap latch, settings | Unit tests on every commit (`tests/core_test.c`) |
+| Page ↔ firmware: touch, multi-touch, D-pad, sticks, mode switching, Wi-Fi settings, reconnect | Chromium driving the real page against the real server core, 8 screen sizes (`tests/ui.test.cjs`) |
+| Pico W, Pico 2 W and all five ESP32 targets | Cross-compiled in CI |
+| DualShock 3 on a PS3 | The 0.1 firmware was used on a CECHL00 console including system recovery. 0.4 sends the same descriptors and report bytes from restructured code; it has **not** been re-run on a console yet |
+| Every other controller type, every ESP32 board, Pico 2 W | **Not yet run on hardware.** Written from the published protocols and checked by the tests above |
+| Motion | Experimental and normally blocked by browsers on plain `http://` pages |
 
-## Quick start: flash the UF2
+If you try a combination, please [open an issue](https://github.com/david-bowiegxw/omni-webpad/issues) with the result — working reports are as useful as failures. The settings page has a **Diagnostics** button whose output helps a lot.
 
-1. Download `PS3-PicoW-Webpad-v0.3.0.uf2` from [Releases](https://github.com/david-bowiegxw/ps3-picow-webpad/releases/tag/v0.3.0). The release is marked **pre-release** pending PS3 gameplay validation.
-2. Hold **BOOTSEL**, connect the Pico W to your computer using a USB data cable, then release BOOTSEL.
-3. Copy the UF2 onto the `RPI-RP2` drive. It disappears when flashing completes.
-4. Connect the Pico W's USB port to the PS3. Wait for the Wi-Fi access point to appear (allow roughly 5–10 seconds).
-5. Connect the phone to **`PS3-PicoW`**, password **`PicoPad123`**. Stay connected when warned that this network has no internet.
-6. Open **`http://192.168.4.1`** in a full browser. The pad appears immediately in a landscape arrangement. Press **PS** to register the controller.
-7. Hold the phone sideways. Drag either stick from where your finger lands; release to center. Use the gear menu to adjust stick travel; a smaller value reaches full deflection with less movement.
+## Quick start
 
-The public firmware uses a new, documented demonstration Wi-Fi password. If upgrading a private build, forget the old saved network and reconnect. Change `WIFI_PASSWORD` in `src/main.c` before building if you want a private password. Anyone on this access point can send inputs; use one controlling page at a time.
+### 1. Flash
 
-This is controller firmware only. It does not patch the PS3 or install system firmware. Recovery compatibility outside the tested setup is not guaranteed.
+**Pico W / Pico 2 W** — hold **BOOTSEL**, plug the board into a computer, release, and copy the `.uf2` onto the `RPI-RP2` (Pico 2 W: `RP2350`) drive.
 
-## Fullscreen, motion and vibration
-
-- **Landscape:** does not depend on browser fullscreen or orientation-lock support. If the browser stays portrait, the controller is rotated clockwise; turn the phone to match it.
-- **Fullscreen:** press the fullscreen button. On iPhone, try Safari → Share → Add to Home Screen if browser fullscreen is unavailable. OS edge gestures may still apply.
-- **Motion:** modern browsers generally require a secure context (HTTPS) and sometimes explicit permission. The Pico W serves HTTP, so phone motion will usually be unavailable in this configuration. The UI reports this restriction; ordinary controls still work. The experimental mapper is not a guarantee of native Sixaxis equivalence.
-- **Vibration:** opt-in. iPhone Safari does not offer the general Vibration API. Supported Android browsers may produce 80 ms pulses when the reported motor state changes. No browser-independent amplitude control is available.
-- **Analog pressure:** touch buttons and L2/R2 are digital 0/255 pressure, not force-sensitive buttons.
-
-References: [MDN motion permissions](https://developer.mozilla.org/en-US/docs/Web/API/DeviceMotionEvent/requestPermission_static), [Vibration API](https://developer.mozilla.org/en-US/docs/Web/API/Vibration_API).
-
-## Build from source
-
-Requirements: Git, CMake, Python 3, an `arm-none-eabi` GCC toolchain, and **Pico SDK 2.2.0**. Local release build uses GCC 14.2.1 on macOS ARM64. No Node.js is needed to build the firmware. See the [official Pico SDK](https://github.com/raspberrypi/pico-sdk/tree/2.2.0) for platform setup.
+**ESP32 family** — each `.bin` is a complete image for offset `0x0`. Hold **BOOT** while plugging in (or while tapping **RESET**) to enter download mode, then either use the browser flasher at <https://espressif.github.io/esptool-js/> or:
 
 ```sh
-git clone https://github.com/david-bowiegxw/ps3-picow-webpad.git
-cd ps3-picow-webpad
-git clone --depth 1 --branch 2.2.0 https://github.com/raspberrypi/pico-sdk.git pico-sdk
-git -C pico-sdk submodule update --init --depth 1 lib/tinyusb lib/lwip lib/cyw43-driver
-cmake -S . -B build -DPICO_SDK_PATH="$PWD/pico-sdk" -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel 4
+pip install esptool
+esptool.py --chip esp32s3 write_flash 0x0 omniwebpad-esp32s3.bin
 ```
 
-Output: `build/ps3-picow.uf2`. If GCC is not on PATH, add `-DPICO_TOOLCHAIN_PATH=/path/to/arm-toolchain` when configuring. SDK warnings about uninitialized BTstack are expected: this project uses Wi-Fi and USB, not Bluetooth. Only required SDK dependencies are fetched to save disk space.
+Replace `esp32s3` with your chip. Press **RESET** afterwards.
 
-CMake compresses `src/index.html` into a generated header automatically. A small Python converter produces RP2040 UF2 blocks from the built binary; picotool is not downloaded. Generated files and SDK/toolchain directories are excluded from Git.
+### 2. Connect
 
-## Test and preview
+1. Plug the board into the console or PC with a USB **data** cable. (Bluetooth-only boards just need power.)
+2. On the phone, join Wi-Fi **`OmniWebPad-XXXX`** with password **`omniwebpad`**. Stay connected when the phone says the network has no internet.
+3. Open **`http://192.168.4.1`** and turn the phone sideways.
+
+### 3. Choose the controller
+
+Tap **⚙** → pick a controller type → **Switch and restart**. USB boards start as *Xbox 360*; Bluetooth-only boards start as *Bluetooth gamepad* (pair with **OmniWebPad** in the host's Bluetooth settings). The choice is stored on the board.
+
+> **Upgrading from PS3 Pico W Webpad 0.3?** The Wi-Fi name and password changed, and the board now starts as an Xbox 360 pad. Join the new network, open ⚙ and select **DualShock 3** once to get the PS3 behaviour back.
+
+Change the Wi-Fi name and password in the same page; anyone who can join the access point can send inputs. Forgot the password? Hold **BOOTSEL** (Pico) or **BOOT** (ESP32) for five seconds while the board is running to restore the defaults.
+
+## The touch interface
+
+![Settings: controller type picker](docs/settings.png)
+
+- **Skins** for Xbox, PlayStation, Switch and generic pads, with the right glyphs, colours and names (LB/RT, ZL/ZR, SHARE/OPTIONS, −/+, Capture, touchpad click).
+- **D-pad as one zone:** eight directions, slide between them without lifting.
+- **Thumb-roll face buttons:** slide from one to the next, or rest between two to press both.
+- **Floating sticks:** wherever your thumb lands is the centre, so there is no jump on touch. Travel is adjustable.
+- **Two left-hand layouts:** D-pad on top (PlayStation style) or stick on top (Xbox/Switch style). Automatic by controller type, or forced.
+- **Always landscape:** a portrait-locked browser gets a rotated pad with matching touch coordinates. The pad widens on tall phones so the clusters sit under your thumbs.
+- **Status pill:** board link, host link, round-trip time, player LEDs and light bar colour. Host rumble vibrates the phone where the browser allows it (Android; iOS Safari has no vibration API). Optional haptic tick on key presses.
+- **No lost taps:** every press reaches the host for at least one report even if it was shorter than a frame, and input is released if the page loses focus, a touch is cancelled or the link drops.
+- English and Chinese, chosen from the browser language.
+
+Limits of a touchscreen: buttons and triggers are digital (a trigger press is a full pull), there is no touchpad surface, gyro or adaptive trigger emulation, and latency is a few milliseconds of Wi-Fi plus the host's own polling. The displayed round-trip time measures phone ↔ board only.
+
+## How it works
+
+The firmware is one portable C core plus thin platform layers:
+
+```text
+web/index.html            the page, gzip-embedded into every firmware
+firmware/core/            pad state, HTTP + WebSocket server, settings, input queue
+firmware/core/modes/      one file per controller: descriptors + report translation
+firmware/usb/             TinyUSB glue shared by Pico and ESP32 (HID + Xbox vendor class)
+firmware/platform/pico/   Pico SDK: CYW43 access point, lwIP
+firmware/platform/esp32/  ESP-IDF: Wi-Fi access point, sockets, NimBLE HID-over-GATT
+firmware/platform/host/   desktop simulator used by the tests
+```
+
+The page streams 12-byte binary frames over a WebSocket; the board answers pings with link state and host feedback. The wire format, HTTP API and each controller's report layout are in [docs/PROTOCOL.md](docs/PROTOCOL.md). Adding a controller means adding one file under `firmware/core/modes/` and a line in `mode.c`.
+
+## Develop
+
+No hardware is needed to work on the page or the protocol code:
 
 ```sh
-cc -std=c11 -Wall -Wextra -I src tools/test_packet.c src/packet.c -o /tmp/webpad-packet-test
-/tmp/webpad-packet-test
-node tools/check.cjs
 npm install
 npx playwright install chromium
-npm test
-python3 tools/preview.py
+npm test            # builds the simulator, runs core tests and browser tests
+npm run preview     # simulator at http://127.0.0.1:8787
 ```
 
-Open `http://127.0.0.1:8787` for the simulated controller preview. It does not control a PS3. To reuse an installed browser instead of downloading Chromium, set `CHROME_PATH` to its executable before `npm test`. Browser tests cover six portrait/landscape sizes, overlap and viewport checks, two simultaneous sticks, rotation-correct direction, short taps, release, and one outstanding state request.
+Requires CMake, a C compiler and Node 22. Set `CHROME_PATH` to reuse an installed Chromium.
 
-See [protocol notes](docs/PROTOCOL.md) and [contribution guide](CONTRIBUTING.md). Please include phone model, browser, screen orientation, board, firmware version, PS3 model and measured request RTT when reporting input problems.
+**Pico W / Pico 2 W** (Pico SDK 2.2.0, `arm-none-eabi-gcc`):
+
+```sh
+git clone --depth 1 --branch 2.2.0 https://github.com/raspberrypi/pico-sdk.git
+git -C pico-sdk submodule update --init --depth 1 lib/tinyusb lib/lwip lib/cyw43-driver lib/mbedtls lib/btstack
+cmake -S firmware/platform/pico -B build/pico_w -DPICO_SDK_PATH="$PWD/pico-sdk" -DPICO_BOARD=pico_w
+cmake --build build/pico_w          # build/pico_w/omniwebpad-pico_w.uf2
+```
+
+Use `-DPICO_BOARD=pico2_w` for the Pico 2 W.
+
+**ESP32 family** (ESP-IDF 5.3 or newer):
+
+```sh
+cd firmware/platform/esp32
+idf.py set-target esp32s3           # esp32s2 · esp32s3 · esp32c3 · esp32c6 · esp32
+idf.py build flash
+```
+
+`idf.py menuconfig` → *OmniWebPad* sets the reset-button and status-LED pins for your board.
 
 ## Troubleshooting
 
-**No Wi-Fi / PS button does nothing:** use a USB data cable, wait for AP startup, check the board type, and inspect `/status`. USB enumeration alone is not proof that every PS3 handshake is complete.
-
-**Joystick feels slow:** reduce travel in settings, move closer to the Pico W, close other controller tabs, and watch request RTT. Screen rendering is local; actual input is still limited by Wi-Fi and PS3/game processing. No latency benchmark is claimed.
-
-**Need a physical controller adapter?** [DualSense-to-DualShock3-Sixaxis](https://github.com/ivveshermosilla/dualsense-to-dualshock3-sixaxis), [RosettaPad](https://github.com/ihasTaco/RosettaPad), and [Bluepad32](https://github.com/ricardoquesada/bluepad32) address related hardware/input scenarios. They are not drop-in versions of this phone webpad.
+- **Page will not load:** check the phone is still on the board's Wi-Fi (phones hop back to networks with internet; turn off mobile data or "smart network switch" if needed) and that the address is `http://`, not `https://`.
+- **Amber dot, "no host":** the board is reachable but the console or PC has not accepted the controller. Use a data cable, check the controller type suits the host, and look at ⚙ → Diagnostics.
+- **Switch does nothing:** enable *System Settings → Controllers and Sensors → Pro Controller Wired Communication*, then press a button.
+- **PS3:** press the **PS** button once to assign the controller.
+- **Laggy:** move closer to the board, close other tabs using the pad, and keep Bluetooth mode for hosts that cannot use USB — a single radio shared between Wi-Fi and Bluetooth is slower than Wi-Fi plus a cable.
+- **Cannot re-flash an ESP32-S2/S3 after installing:** the firmware owns the USB port, so enter download mode by holding **BOOT** while plugging in.
 
 ## License and credits
 
-Project code is [MIT licensed](LICENSE). Adapted DS3 protocol tables retain Ivves Hermosilla's MIT notice; the DHCP server retains Damien P. George's MicroPython notice. Pico SDK, TinyUSB, lwIP and CYW43 components have their own terms. **The combined UF2 is not entirely MIT**: the CYW43 Raspberry Pi license restricts the relevant component to Raspberry Pi silicon. See [third-party notices](THIRD_PARTY_NOTICES.md) and the notices bundled with release downloads.
+Project code is [MIT licensed](LICENSE). DualShock 3 protocol tables are adapted from Ivves Hermosilla's MIT-licensed work and the Pico DHCP server from MicroPython (Damien P. George); see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). SDK components compiled into firmware binaries keep their own licenses, so a binary is not MIT as a whole; in particular the CYW43 firmware in Pico builds is licensed for Raspberry Pi silicon.
 
-Independent project; not affiliated with Sony or Raspberry Pi. PlayStation, DualShock and other names identify compatibility, not endorsement.
+Controller behaviour was written from publicly documented protocols; the Linux `xpad` and `hid-playstation` drivers, GP2040-CE and the LUFA Switch-Fightstick project are invaluable references.
+
+Independent project, not affiliated with or endorsed by Microsoft, Sony, Nintendo, HORI, Raspberry Pi or Espressif. Product names and USB identifiers are used only so hosts recognise the device.

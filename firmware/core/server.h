@@ -11,6 +11,7 @@ typedef struct server_conn {
     void *io;
     bool websocket;
     bool closing;
+    bool keep_alive;
     uint16_t used;
     uint8_t buffer[SERVER_BUFFER + 1];
 } server_conn_t;
