@@ -40,6 +40,7 @@ jobs:
           name: omniwebpad-${{ matrix.board }}
           path: build/${{ matrix.board }}/omniwebpad-${{ matrix.board }}.uf2
           if-no-files-found: error
+          retention-days: 3   # releases keep the firmware; CI copies are only for testing
 
   esp32:
     name: Firmware ${{ matrix.target }}
@@ -62,6 +63,7 @@ jobs:
           name: omniwebpad-${{ matrix.target }}
           path: firmware/platform/esp32/build/omniwebpad-${{ matrix.target }}.bin
           if-no-files-found: error
+          retention-days: 3   # releases keep the firmware; CI copies are only for testing
 
   release:
     name: Publish release
