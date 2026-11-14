@@ -19,6 +19,18 @@ Phone browser ──Wi-Fi──▶ Pico W / ESP32 ──USB or Bluetooth LE─�
 
 Formerly *PS3 Pico W Webpad*. Version 0.4 kept the PS3 controller and added seven more, five more boards and a rebuilt interface; 0.5 lets one board serve up to four players.
 
+## When it helps
+
+A stand-in for the moments when there is no controller to hand:
+
+- **Your controller broke** — stick drift, a dead button, a flat battery — and you are waiting for a repair or a replacement.
+- **The console is old.** Original pads for a PS3 or an original Xbox are getting hard to find, and a phone you already own works today. On a PS3 it is enough to reach the recovery menu.
+- **The controller is lost**, somewhere under the sofa or in a moving box.
+- **Friends came over** and there are not enough pads for local multiplayer. One board turns up to four phones into extra controllers.
+- **You just want to try something** — a game, an emulator, a PC without a gamepad — before buying hardware for it.
+
+It is a temporary replacement, not an upgrade: a touchscreen has no physical feedback, so for long sessions or competitive play a real controller remains better. Consoles that require licensed controllers are listed under [Controllers it can be](#controllers-it-can-be).
+
 ## Help test it
 
 There is no hardware lab behind this project. Apart from the DualShock 3 on a PS3, every combination below is waiting for its first report, and the author does not own the consoles. If you have a Pico W, Pico 2 W or an ESP32 board, ten minutes is enough: flash, connect the phone, try a game, then **[file a test report](https://github.com/david-bowiegxw/omni-webpad/issues/new?template=test-report.yml)**. The form asks for everything needed, including the page's diagnostics output.
