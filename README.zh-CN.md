@@ -1,6 +1,6 @@
 # OmniWebPad：把手机变成 Xbox / PlayStation / Switch / 蓝牙手柄
 
-[English](README.md) · [下载固件](https://github.com/david-bowiegxw/omni-webpad/releases) · [反馈问题](https://github.com/david-bowiegxw/omni-webpad/issues)
+[English](README.md) · [下载固件](https://github.com/david-bowiegxw/omni-webpad/releases) · [提交测试报告](https://github.com/david-bowiegxw/omni-webpad/issues/new?template=test-report.yml) · [反馈问题](https://github.com/david-bowiegxw/omni-webpad/issues/new?template=bug-report.yml)
 
 **一块几十块钱的 Wi-Fi 开发板插到主机或电脑上冒充手柄，手机浏览器就是触摸屏。** 不用装 App、不用焊接、不用联网、不用登录账号。开发板冒充哪种手柄，在设置页里点一下即可切换，几秒钟后它就以新身份重新被主机识别。
 
@@ -11,6 +11,19 @@
 ```
 
 本项目原名 *PS3 Pico W Webpad*。0.4 版保留 PS3 手柄，并新增 7 种手柄、5 种开发板和重做的操作界面；0.5 版起一块开发板最多可同时当 4 个手柄用。
+
+## 帮忙测试
+
+这个项目背后没有硬件实验室，作者手上也没有这些主机。除了 PS3 上的 DualShock 3，下面每一种组合都在等第一份实机报告。如果你有 Pico W、Pico 2 W 或 ESP32 开发板，十分钟就够：刷固件、手机连上、玩一局，然后**[提交测试报告](https://github.com/david-bowiegxw/omni-webpad/issues/new?template=test-report.yml)**。表单会提示需要填写的内容，包括网页上的诊断信息。
+
+最需要的测试：
+
+- Windows 上的 **Xbox 360** 模式，1 人和 2–4 人都要（Windows 是否认模拟的无线接收器？）
+- Nintendo Switch 上的 **Switch 有线手柄**
+- 电脑、Steam 或 Android 上的 **DualShock 4** / **DualSense**，以及 PS4 上的 DualShock 4
+- ESP32-C3、C6 或经典 ESP32 的**蓝牙手柄**，连 Android 或 Windows
+- 用 0.5 固件在 PS3 上跑 **DualShock 3**
+- 任何 **ESP32-S2/S3** 开发板的 USB 模式
 
 ## 可以冒充的手柄
 
@@ -77,7 +90,7 @@ C6、C3 和经典 ESP32 芯片内部没有 USB 设备控制器——板上的 US
 | 其余所有手柄类型、多人模式、所有 ESP32 开发板、Pico 2 W | **尚未实机测试。** 依据公开协议编写，并通过上述测试 |
 | 体感 | 实验性；普通 `http://` 页面通常被浏览器禁止读取传感器 |
 
-如果你试了某个组合，欢迎[提交 issue](https://github.com/david-bowiegxw/omni-webpad/issues) 告知结果——“能用”的报告和“不能用”的一样有价值。设置页里的**诊断信息**按钮输出的内容对排查很有帮助。
+如果你试了某个组合，欢迎[提交测试报告](https://github.com/david-bowiegxw/omni-webpad/issues/new?template=test-report.yml) 告知结果——“能用”的报告和“不能用”的一样有价值。设置页里的**诊断信息**按钮输出的内容对排查很有帮助。
 
 ## 快速上手
 

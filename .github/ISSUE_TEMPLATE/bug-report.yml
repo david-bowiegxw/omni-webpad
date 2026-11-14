@@ -1,0 +1,33 @@
+name: 问题反馈 / Bug report
+description: 网页、固件或文档有问题 / Something in the page, firmware or docs is wrong
+labels: ["bug"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 问题 / Problem
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境 / Environment
+      value: |
+        - 固件版本 / Firmware version:
+        - 开发板 / Board:
+        - 手柄类型与玩家人数 / Controller type and players:
+        - 主机 / Host (console or OS):
+        - 手机与浏览器 / Phone and browser:
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 诊断信息 / Diagnostics
+      description: 设置 ⚙ → 诊断信息 / Settings ⚙ → Diagnostics
+      render: json
+  - type: markdown
+    attributes:
+      value: 请勿上传主机 Flash 备份、账号凭据或 Wi-Fi 密码。/ Do not attach console flash dumps, account credentials or Wi-Fi passwords.

@@ -1,6 +1,6 @@
 # OmniWebPad — your phone as an Xbox, PlayStation, Switch or Bluetooth controller
 
-[简体中文](README.zh-CN.md) · [Download firmware](https://github.com/david-bowiegxw/omni-webpad/releases) · [Report a bug](https://github.com/david-bowiegxw/omni-webpad/issues)
+[简体中文](README.zh-CN.md) · [Download firmware](https://github.com/david-bowiegxw/omni-webpad/releases) · [Report a test result](https://github.com/david-bowiegxw/omni-webpad/issues/new?template=test-report.yml) · [Report a bug](https://github.com/david-bowiegxw/omni-webpad/issues/new?template=bug-report.yml)
 
 ![Build](https://github.com/david-bowiegxw/omni-webpad/actions/workflows/build.yml/badge.svg)
 ![License: MIT](https://img.shields.io/badge/project_license-MIT-blue.svg)
@@ -15,6 +15,19 @@ Phone browser ──Wi-Fi──▶ Pico W / ESP32 ──USB or Bluetooth LE─�
 ```
 
 Formerly *PS3 Pico W Webpad*. Version 0.4 kept the PS3 controller and added seven more, five more boards and a rebuilt interface; 0.5 lets one board serve up to four players.
+
+## Help test it
+
+There is no hardware lab behind this project. Apart from the DualShock 3 on a PS3, every combination below is waiting for its first report, and the author does not own the consoles. If you have a Pico W, Pico 2 W or an ESP32 board, ten minutes is enough: flash, connect the phone, try a game, then **[file a test report](https://github.com/david-bowiegxw/omni-webpad/issues/new?template=test-report.yml)**. The form asks for everything needed, including the page's diagnostics output.
+
+Most wanted:
+
+- **Xbox 360** mode on Windows, with 1 player and with 2–4 players (does Windows accept the emulated wireless receiver?)
+- **Switch wired pad** on a Nintendo Switch
+- **DualShock 4** / **DualSense** on PC, Steam or Android, and DualShock 4 on a PS4
+- **Bluetooth gamepad** from an ESP32-C3, C6 or classic ESP32 on Android or Windows
+- **DualShock 3** on a PS3 with 0.5 firmware
+- Any **ESP32-S2/S3** board in USB mode
 
 ## Controllers it can be
 
@@ -81,7 +94,7 @@ This project is honest about the gap between "compiles" and "works on your conso
 | Every other controller type, multi-player mode, every ESP32 board, Pico 2 W | **Not yet run on hardware.** Written from the published protocols and checked by the tests above |
 | Motion | Experimental and normally blocked by browsers on plain `http://` pages |
 
-If you try a combination, please [open an issue](https://github.com/david-bowiegxw/omni-webpad/issues) with the result — working reports are as useful as failures. The settings page has a **Diagnostics** button whose output helps a lot.
+If you try a combination, please [file a test report](https://github.com/david-bowiegxw/omni-webpad/issues/new?template=test-report.yml) — working reports are as useful as failures. The settings page has a **Diagnostics** button whose output helps a lot.
 
 ## Quick start
 
