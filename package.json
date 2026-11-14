@@ -1,10 +1,19 @@
 {
-  "name": "ps3-picow-webpad",
-  "version": "0.3.0",
+  "name": "omni-webpad",
+  "version": "0.4.0",
   "private": true,
-  "description": "Phone touchscreen to PS3 DualShock 3 USB controller with Raspberry Pi Pico W",
+  "description": "Phone touchscreen to Xbox, PlayStation, Switch and generic USB/Bluetooth controllers with a Pico W or ESP32",
   "license": "MIT",
-  "repository": "github:david-bowiegxw/ps3-picow-webpad",
-  "scripts": {"test": "node tools/check.cjs && node tools/test_ui.cjs"},
-  "devDependencies": {"playwright": "1.63.0"}
+  "repository": "github:david-bowiegxw/omni-webpad",
+  "scripts": {
+    "build:sim": "cmake -S firmware/platform/host -B build/host -DCMAKE_BUILD_TYPE=Release && cmake --build build/host",
+    "test:core": "build/host/core-test",
+    "test:ui": "node tests/ui.test.cjs",
+    "test": "npm run build:sim && npm run test:core && npm run test:ui",
+    "preview": "npm run build:sim && build/host/omniwebpad-sim --port 8787",
+    "screenshots": "SCREENSHOTS=1 node tests/ui.test.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
 }

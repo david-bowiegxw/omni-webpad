@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0d1017">
+<meta name="description" content="OmniWebPad: turn a phone into a USB or Bluetooth game controller.">
+<title>OmniWebPad</title>
+<style>
+:root {
+  --bg: #0d1017; --panel: #171d29; --line: #3b465a; --text: #e6ebf3; --muted: #93a0b5;
+  --key: #232b3a; --key-hi: #303a4d; --accent: #6aa9ff; --ok: #4fd08a; --warn: #f0b24a; --bad: #ef6b73;
+  --north: #7ce2b4; --east: #ff919d; --south: #8cbaff; --west: #e9a3dd;
+}
+[data-family="xbox"] { --north: #f3c84b; --east: #f0646c; --south: #6fd66f; --west: #5fa8f5; --accent: #6fd66f; }
+[data-family="switch"] { --north: #e6ebf3; --east: #e6ebf3; --south: #e6ebf3; --west: #e6ebf3; --accent: #ff5f5f; }
+[data-family="generic"] { --north: #c9d3e3; --east: #c9d3e3; --south: #c9d3e3; --west: #c9d3e3; --accent: #b7a3ff; }
+
+* { box-sizing: border-box; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: var(--bg); color: var(--text);
+  font: 14px system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  touch-action: none; overscroll-behavior: none; }
+#stage { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); overflow: hidden; isolation: isolate;
+  background: radial-gradient(ellipse at 50% 70%, #232d3f, var(--bg) 72%); }
+#stage.rotated { transform: translate(-50%, -50%) rotate(90deg); }
+#pad { position: absolute; height: 360px; transform-origin: top left; }
+
+/* Shared key look */
+.key { position: absolute; display: grid; place-items: center; color: var(--text); font-weight: 650; letter-spacing: .3px;
+  border: 1px solid var(--line); border-radius: 14px; background: linear-gradient(var(--key-hi), var(--key));
+  box-shadow: 0 4px 0 #06090e, inset 0 1px 0 #ffffff14; touch-action: none; cursor: pointer; }
+.key.down { background: linear-gradient(#4a6f9f, #35557f); border-color: #a9d3ff; transform: translateY(3px);
+  box-shadow: 0 1px 0 #06090e, inset 0 0 14px #9ccaff55; }
+
+.shoulder { top: 12px; width: 92px; height: 44px; font-size: 15px; }
+#l2 { left: 16px; } #l1 { left: 116px; } #r1 { right: 116px; } #r2 { right: 16px; }
+#l2, #r2 { border-radius: 14px 14px 22px 22px; }
+
+/* Top centre: fullscreen, status, settings */
+#bar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; align-items: center; }
+#bar .key { position: static; width: 42px; height: 42px; font-size: 19px; border-radius: 12px; }
+#status { width: 196px; height: 42px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line); background: #0b0e14cc;
+  display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); overflow: hidden; }
+#dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--bad); box-shadow: 0 0 8px currentColor; color: var(--bad); }
+#status[data-link="board"] #dot { background: var(--warn); color: var(--warn); }
+#status[data-link="host"] #dot { background: var(--ok); color: var(--ok); }
+#statusText { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#statusText b { color: var(--text); font-weight: 650; }
+#leds { display: none; gap: 3px; }
+#leds.any { display: flex; }
+#leds i { width: 5px; height: 5px; border-radius: 50%; background: #2b3444; }
+#leds i.on { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+#status.rumble { border-color: var(--warn); }
+
+/* Centre column */
+.system { top: 84px; height: 40px; font-size: 11px; border-radius: 20px; }
+#select { left: 50%; margin-left: -96px; width: 64px; }
+#start { left: 50%; margin-left: 32px; width: 64px; }
+#home { left: 50%; margin-left: -24px; top: 80px; width: 48px; height: 48px; border-radius: 50%; color: var(--accent); font-size: 12px; }
+#misc { left: 50%; margin-left: -58px; top: 140px; width: 116px; height: 36px; font-size: 10px; border-radius: 10px; color: var(--muted); }
+.hide { display: none !important; }
+
+/* D-pad: one touch zone, eight directions */
+#dpad { position: absolute; left: 22px; top: 74px; width: 152px; height: 152px; touch-action: none; }
+#dpad::before { content: ""; position: absolute; inset: 0; border-radius: 50%; background: #0a0d1366; border: 1px solid #2a3344; }
+#dpad .arm { position: absolute; width: 50px; height: 50px; display: grid; place-items: center; font-size: 19px; color: var(--muted);
+  background: linear-gradient(var(--key-hi), var(--key)); border: 1px solid var(--line); box-shadow: 0 3px 0 #06090e; pointer-events: none; }
+#dpad .arm.down { background: linear-gradient(#4a6f9f, #35557f); border-color: #a9d3ff; color: #fff; box-shadow: 0 1px 0 #06090e; }
+#dpad .up { left: 51px; top: 1px; border-radius: 12px 12px 4px 4px; }
+#dpad .down-arm { left: 51px; top: 101px; border-radius: 4px 4px 12px 12px; }
+#dpad .left { left: 1px; top: 51px; border-radius: 12px 4px 4px 12px; }
+#dpad .right { left: 101px; top: 51px; border-radius: 4px 12px 12px 4px; }
+#dpad .hub { position: absolute; left: 51px; top: 51px; width: 50px; height: 50px; background: var(--key); border: 1px solid var(--line); pointer-events: none; }
+
+/* Face buttons: one touch zone so a thumb can roll between buttons */
+#face { position: absolute; right: 22px; top: 74px; width: 152px; height: 152px; touch-action: none; }
+#face .btn { position: absolute; width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; font-size: 25px; font-weight: 700;
+  background: radial-gradient(circle at 35% 28%, var(--key-hi), var(--key)); border: 1px solid var(--line); box-shadow: 0 4px 0 #06090e; pointer-events: none; }
+#face .btn.down { background: radial-gradient(circle at 35% 28%, #5b82b5, #35557f); border-color: #a9d3ff; transform: translateY(3px); box-shadow: 0 1px 0 #06090e; }
+#face .north { left: 48px; top: 0; color: var(--north); } #face .east { left: 96px; top: 48px; color: var(--east); }
+#face .south { left: 48px; top: 96px; color: var(--south); } #face .west { left: 0; top: 48px; color: var(--west); }
+[data-family="xbox"] #face .btn, [data-family="switch"] #face .btn, [data-family="generic"] #face .btn { font-size: 21px; }
+
+/* Sticks */
+.stick { position: absolute; top: 196px; width: 132px; height: 132px; border-radius: 50%; border: 1px solid #4d5a70;
+  background: radial-gradient(circle, #222c3d 0 62%, #121823 64%); box-shadow: inset 0 0 22px #0009; touch-action: none; }
+#ls { left: 190px; } #rs { right: 190px; }
+.stick.active { border-color: #9ccef5; }
+.knob { position: absolute; left: 38px; top: 38px; width: 56px; height: 56px; border-radius: 50%; border: 1px solid #8b99af;
+  background: radial-gradient(circle at 38% 30%, #6c7c94, #2c3748 72%); box-shadow: 0 6px 14px #000a; pointer-events: none; will-change: transform; }
+.click { top: 268px; width: 76px; height: 42px; font-size: 13px; }
+#l3 { left: 44px; } #r3 { right: 44px; }
+/* Alternative arrangement: left stick on top, D-pad below (Xbox / Switch style) */
+#pad.swap #ls { left: 32px; top: 84px; }
+#pad.swap #dpad { left: 180px; top: 186px; }
+#pad.swap #l3 { left: 44px; top: 268px; }
+
+/* Settings */
+#overlay { position: absolute; inset: 0; z-index: 5; background: #080b11f2; display: flex; justify-content: center; }
+#overlay[hidden] { display: none; }
+#sheet { width: min(640px, 100%); height: 100%; overflow-y: auto; padding: 14px 18px 22px; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
+#sheet header { display: flex; align-items: center; gap: 10px; position: sticky; top: -14px; padding: 10px 0; background: #080b11; z-index: 1; }
+#sheet h2 { margin: 0; font-size: 17px; flex: 1; }
+#sheet h3 { margin: 18px 0 8px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
+#sheet p { margin: 6px 0; font-size: 12px; line-height: 1.5; color: var(--muted); }
+.btn2 { border: 1px solid var(--line); background: var(--key); color: var(--text); border-radius: 10px; padding: 0 14px; height: 38px;
+  font: 600 13px inherit; touch-action: manipulation; cursor: pointer; }
+.btn2.primary { background: #2f5f98; border-color: #7fb4f0; }
+.btn2.danger { border-color: #8d4850; color: #ffb3b8; }
+.btn2:disabled { opacity: .45; }
+.modes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.mode { text-align: left; border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 12px; padding: 9px 11px;
+  font: inherit; touch-action: manipulation; cursor: pointer; }
+.mode b { display: block; font-size: 14px; }
+.mode small { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; line-height: 1.35; }
+.mode .tag { float: right; font-size: 10px; padding: 1px 6px; border-radius: 8px; border: 1px solid var(--line); color: var(--muted); }
+.mode.current { border-color: var(--ok); box-shadow: inset 0 0 0 1px var(--ok); }
+.mode.picked { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.mode:disabled { opacity: .4; }
+.row { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+.row > label { flex: 1 1 200px; display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.row input[type=range] { flex: 1; touch-action: pan-x; }
+.row input[type=text] { flex: 1; min-width: 0; height: 38px; border-radius: 10px; border: 1px solid var(--line); background: #0c1017; color: var(--text);
+  padding: 0 10px; font: 14px inherit; -webkit-user-select: text; user-select: text; touch-action: manipulation; }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.seg button { border: 0; background: transparent; color: var(--muted); height: 36px; padding: 0 12px; font: 600 12px inherit; touch-action: manipulation; cursor: pointer; }
+.seg button.on { background: var(--key-hi); color: var(--text); }
+#notice { margin-top: 8px; font-size: 12px; min-height: 18px; color: var(--warn); }
+#diag { margin: 8px 0 0; padding: 8px; border-radius: 8px; background: #0c1017; border: 1px solid #252d3b; font: 10px/1.45 ui-monospace, Menlo, Consolas, monospace;
+  color: var(--muted); white-space: pre-wrap; word-break: break-all; max-height: 150px; overflow: auto; -webkit-user-select: text; user-select: text; touch-action: pan-y; }
+</style>
+</head>
+<body>
+<div id="stage"><main id="pad" aria-label="Game controller" data-family="generic">
+  <div class="key shoulder" id="l2" data-b="8"></div>
+  <div class="key shoulder" id="l1" data-b="10"></div>
+  <div class="key shoulder" id="r1" data-b="11"></div>
+  <div class="key shoulder" id="r2" data-b="9"></div>
+
+  <div id="bar">
+    <div class="key" id="fullscreen" role="button" aria-label="Fullscreen">⛶</div>
+    <div id="status" role="status" data-link="none"><span id="dot"></span><span id="statusText"></span><span id="leds"><i></i><i></i><i></i><i></i></span></div>
+    <div class="key" id="menu" role="button" aria-label="Settings">⚙</div>
+  </div>
+
+  <div class="key system" id="select" data-b="0"></div>
+  <div class="key" id="home" data-b="16"></div>
+  <div class="key system" id="start" data-b="3"></div>
+  <div class="key" id="misc" data-b="17"></div>
+
+  <div id="dpad" aria-label="D-pad">
+    <div class="arm up" data-b="4">▲</div><div class="arm right" data-b="5">▶</div>
+    <div class="arm down-arm" data-b="6">▼</div><div class="arm left" data-b="7">◀</div><div class="hub"></div>
+  </div>
+  <div id="face" aria-label="Face buttons">
+    <div class="btn north" data-b="12"></div><div class="btn east" data-b="13"></div>
+    <div class="btn south" data-b="14"></div><div class="btn west" data-b="15"></div>
+  </div>
+
+  <div class="stick" id="ls" aria-label="Left stick"><div class="knob"></div></div>
+  <div class="stick" id="rs" aria-label="Right stick"><div class="knob"></div></div>
+  <div class="key click" id="l3" data-b="1">L3</div>
+  <div class="key click" id="r3" data-b="2">R3</div>
+
+  <div id="overlay" hidden><section id="sheet">
+    <header><h2>OmniWebPad</h2><button class="btn2" id="lang"></button><button class="btn2 primary" id="back" data-t="back"></button></header>
+
+    <h3 data-t="modeTitle"></h3>
+    <div class="modes" id="modes"></div>
+    <div class="row"><button class="btn2 primary" id="applyMode" disabled data-t="applyMode"></button><span id="modeHint" style="flex:1;font-size:12px;color:var(--muted)"></span></div>
+
+    <h3 data-t="feelTitle"></h3>
+    <div class="row"><label><span data-t="travel"></span><input id="travel" type="range" min="20" max="56" value="36"><output id="travelValue">36</output></label></div>
+    <div class="row">
+      <span data-t="layout" style="font-size:13px"></span>
+      <div class="seg" id="layoutSeg"><button data-v="auto" data-t="layoutAuto"></button><button data-v="dpad" data-t="layoutDpad"></button><button data-v="stick" data-t="layoutStick"></button></div>
+    </div>
+    <div class="row">
+      <button class="btn2" id="rumbleToggle"></button><button class="btn2" id="tickToggle"></button>
+      <button class="btn2" id="motion" data-t="motion"></button><button class="btn2" id="release" data-t="release"></button>
+    </div>
+    <p id="feelNote"></p>
+
+    <h3 data-t="wifiTitle"></h3>
+    <div class="row"><input type="text" id="ssid" maxlength="32" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Wi-Fi name">
+      <input type="text" id="pass" maxlength="63" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Wi-Fi password"></div>
+    <div class="row"><button class="btn2" id="saveWifi" data-t="saveWifi"></button><button class="btn2 danger" id="factory" data-t="factory"></button></div>
+    <p data-t="wifiNote"></p>
+    <div id="notice" role="alert"></div>
+
+    <h3 data-t="aboutTitle"></h3>
+    <p id="about"></p>
+    <div class="row"><button class="btn2" id="diagButton" data-t="diag"></button></div>
+    <pre id="diag" hidden></pre>
+  </section></div>
+</main></div>
+
+<script>
+'use strict';
+// ------------------------------------------------------------------ text
+const TEXT = {
+  en: {
+    back: 'Back to pad', modeTitle: 'Controller type', applyMode: 'Switch and restart', feelTitle: 'Feel', travel: 'Stick travel',
+    layout: 'Left side', layoutAuto: 'Auto', layoutDpad: 'D-pad on top', layoutStick: 'Stick on top',
+    motion: 'Motion (experimental)', release: 'Release all', wifiTitle: 'Wi-Fi access point', saveWifi: 'Save Wi-Fi and restart',
+    factory: 'Factory reset', wifiNote: 'Name: 1–32 characters. Password: 8–63 characters. After a restart, reconnect the phone to the board.',
+    aboutTitle: 'About', diag: 'Diagnostics', rumbleOn: 'Rumble: on', rumbleOff: 'Rumble: off', tickOn: 'Key haptics: on', tickOff: 'Key haptics: off',
+    noVibrate: 'This browser has no vibration API (iOS Safari never has).', unavailable: 'not on this board',
+    current: 'active', connecting: 'Connecting…', reconnecting: 'Reconnecting…', waiting: 'no host', linkUsb: 'USB', linkBle: 'BLE',
+    restarting: 'Restarting the board… reconnect to its Wi-Fi if the page does not come back.', saved: 'Saved.', failed: 'Failed: ',
+    confirmFactory: 'Tap again to erase settings', pickHint: 'The board restarts and re-enumerates as the new controller.',
+    motionNeedsHttps: 'Motion sensors need a secure context; browsers block them on plain http:// pages unless this origin is allow-listed.',
+    motionDenied: 'Sensor permission denied.', motionOn: 'Motion data is being sent.', motionNone: 'No sensor data received.',
+    select: {ds3: 'SELECT', ds4: 'SHARE', dualsense: 'CREATE', xinput: 'VIEW', xid: 'BACK', switch: '−', '*': 'SELECT'},
+    start: {ds3: 'START', ds4: 'OPTIONS', dualsense: 'OPTIONS', xinput: 'MENU', xid: 'START', switch: '+', '*': 'START'},
+    misc: {ds4: 'TOUCHPAD', dualsense: 'TOUCHPAD', switch: 'CAPTURE', hid: 'EXTRA', ble: 'EXTRA'},
+  },
+  zh: {
+    back: '返回手柄', modeTitle: '手柄类型', applyMode: '切换并重启', feelTitle: '手感', travel: '摇杆行程',
+    layout: '左侧布局', layoutAuto: '自动', layoutDpad: '十字键在上', layoutStick: '摇杆在上',
+    motion: '体感（实验）', release: '松开全部', wifiTitle: 'Wi-Fi 热点', saveWifi: '保存 Wi-Fi 并重启',
+    factory: '恢复出厂设置', wifiNote: '名称 1–32 个字符，密码 8–63 个字符。重启后请让手机重新连接开发板热点。',
+    aboutTitle: '关于', diag: '诊断信息', rumbleOn: '振动反馈：开', rumbleOff: '振动反馈：关', tickOn: '按键触感：开', tickOff: '按键触感：关',
+    noVibrate: '此浏览器不支持网页振动（iOS Safari 始终不支持）。', unavailable: '此开发板不支持',
+    current: '当前', connecting: '连接中…', reconnecting: '重新连接…', waiting: '未连接主机', linkUsb: 'USB', linkBle: '蓝牙',
+    restarting: '开发板正在重启… 如果页面没有恢复，请重新连接它的 Wi-Fi。', saved: '已保存。', failed: '失败：',
+    confirmFactory: '再点一次清除全部设置', pickHint: '开发板会重启，并以新的手柄身份重新被主机识别。',
+    motionNeedsHttps: '体感需要安全上下文；浏览器默认禁止普通 http:// 页面读取传感器，除非把本地址加入白名单。',
+    motionDenied: '传感器权限被拒绝。', motionOn: '正在发送体感数据。', motionNone: '没有收到传感器数据。',
+    select: {ds3: 'SELECT', ds4: 'SHARE', dualsense: 'CREATE', xinput: 'VIEW', xid: 'BACK', switch: '−', '*': 'SELECT'},
+    start: {ds3: 'START', ds4: 'OPTIONS', dualsense: 'OPTIONS', xinput: 'MENU', xid: 'START', switch: '+', '*': 'START'},
+    misc: {ds4: '触摸板', dualsense: '触摸板', switch: '截图', hid: '附加键', ble: '附加键'},
+  },
+};
+const SKIN = {
+  ps:      {face: ['△', '○', '✕', '□'], l1: 'L1', r1: 'R1', l2: 'L2', r2: 'R2', home: 'PS', swap: false},
+  xbox:    {face: ['Y', 'B', 'A', 'X'], l1: 'LB', r1: 'RB', l2: 'LT', r2: 'RT', home: 'Ⓧ', swap: true},
+  switch:  {face: ['X', 'A', 'B', 'Y'], l1: 'L', r1: 'R', l2: 'ZL', r2: 'ZR', home: '⌂', swap: true},
+  generic: {face: ['Y', 'B', 'A', 'X'], l1: 'L1', r1: 'R1', l2: 'L2', r2: 'R2', home: '⌂', swap: false},
+};
+
+// ------------------------------------------------------------------ state
+const $ = id => document.getElementById(id);
+const stage = $('stage'), pad = $('pad'), overlay = $('overlay');
+const store = {
+  get(key, fallback) { try { const v = localStorage.getItem('owp.' + key); return v === null ? fallback : v; } catch (_) { return fallback; } },
+  set(key, value) { try { localStorage.setItem('owp.' + key, value); } catch (_) {} },
+};
+let lang = store.get('lang', /^zh/i.test(navigator.language || '') ? 'zh' : 'en');
+let travel = +store.get('travel', 36), layoutChoice = store.get('layout', 'auto');
+let rumbleOn = store.get('rumble', '1') === '1', tickOn = store.get('tick', '0') === '1';
+let info = null, modeId = '', pickedMode = '';
+let rotated = false, scale = 1, offsetX = 0, offsetY = 0, padWidth = 800;
+let enabled = true;
+
+const axes = {lx: 128, ly: 128, rx: 128, ry: 128};
+let motion = null;                       // {a: [x, y, z] milli-g, g: [x, y, z] 0.1 deg/s}
+const sources = new Map();               // pointer id -> button mask
+const pressedAt = new Map();             // button bit -> time it went down
+let latched = 0;                         // buttons held a little longer so a tap is never lost
+const MIN_HOLD_MS = 40;
+const t = key => TEXT[lang][key];
+
+// ------------------------------------------------------------------ buttons
+const lit = [...document.querySelectorAll('[data-b]')];
+function heldMask() { let m = 0; sources.forEach(v => m |= v); return m; }
+function mask() { return (heldMask() | latched) >>> 0; }
+function paint() { const m = mask(); for (const el of lit) el.classList.toggle('down', !!(m & (1 << +el.dataset.b))); }
+function vibrate(pattern) { try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (_) {} }
+
+function setSource(id, next) {
+  const before = heldMask();
+  if (next) sources.set(id, next); else sources.delete(id);
+  const after = heldMask(), now = performance.now();
+  for (let bit = 0; bit < 18; bit++) {
+    const flag = 1 << bit;
+    if (after & flag && !(before & flag)) {
+      if (!(latched & flag)) pressedAt.set(bit, now);
+      if (tickOn) vibrate(8);
+    } else if (before & flag && !(after & flag)) {
+      const age = now - (pressedAt.get(bit) || 0);
+      if (age < MIN_HOLD_MS) {
+        latched |= flag;
+        setTimeout(() => { latched &= ~flag; paint(); changed(true); }, MIN_HOLD_MS - age);
+      }
+    }
+  }
+  paint();
+  changed(true);
+}
+
+// Client coordinates -> logical pad coordinates (the stage may be rotated).
+function localPoint(event) {
+  const r = stage.getBoundingClientRect();
+  const x = rotated ? event.clientY - r.top : event.clientX - r.left;
+  const y = rotated ? r.right - event.clientX : event.clientY - r.top;
+  return {x: (x - offsetX) / scale, y: (y - offsetY) / scale};
+}
+function box(el) {                       // logical rectangle inside #pad, immune to transforms
+  let x = 0, y = 0;
+  for (let node = el; node && node !== pad; node = node.offsetParent) { x += node.offsetLeft; y += node.offsetTop; }
+  return {x, y, w: el.offsetWidth, h: el.offsetHeight};
+}
+function track(el, compute) {            // el owns each pointer that starts on it
+  el.addEventListener('pointerdown', e => {
+    if (!enabled) return;
+    e.preventDefault();
+    try { el.setPointerCapture(e.pointerId); } catch (_) {}
+    setSource(e.pointerId, compute(e));
+  });
+  el.addEventListener('pointermove', e => { if (sources.has(e.pointerId)) setSource(e.pointerId, compute(e) || 0); });
+  const end = e => { if (sources.has(e.pointerId)) setSource(e.pointerId, 0); };
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointercancel', end);
+  el.addEventListener('lostpointercapture', end);
+}
+
+for (const el of document.querySelectorAll('.key[data-b]')) { const m = 1 << +el.dataset.b; track(el, () => m); }
+
+// D-pad: direction from the angle around the centre, diagonals included.
+track($('dpad'), e => {
+  const b = box($('dpad')), p = localPoint(e), dx = p.x - (b.x + b.w / 2), dy = p.y - (b.y + b.h / 2);
+  if (Math.hypot(dx, dy) < 13) return 0;
+  const sector = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) & 7;    // 0 = right, clockwise
+  return [32, 32 | 64, 64, 64 | 128, 128, 128 | 16, 16, 16 | 32][sector];
+});
+
+// Face buttons: whatever the finger covers; between two buttons presses both.
+const faceButtons = [...document.querySelectorAll('#face .btn')];
+track($('face'), e => {
+  const p = localPoint(e);
+  let m = 0, nearest = null, best = 1e9;
+  for (const el of faceButtons) {
+    const b = box(el), d = Math.hypot(p.x - (b.x + b.w / 2), p.y - (b.y + b.h / 2));
+    if (d < 40) m |= 1 << +el.dataset.b;
+    if (d < best) { best = d; nearest = el; }
+  }
+  return m || (best < 70 ? 1 << +nearest.dataset.b : 0);
+});
+
+// ------------------------------------------------------------------ sticks
+const sticks = [];
+const toAxis = v => Math.round(v < 0 ? 128 + v * 128 : 128 + v * 127);
+for (const [id, xKey, yKey] of [['ls', 'lx', 'ly'], ['rs', 'rx', 'ry']]) {
+  const area = $(id), knob = area.querySelector('.knob');
+  let pointer = null, origin = null;
+  const reset = () => { pointer = null; origin = null; axes[xKey] = axes[yKey] = 128; knob.style.transform = ''; area.classList.remove('active'); };
+  area.addEventListener('pointerdown', e => {
+    if (pointer !== null || !enabled) return;
+    e.preventDefault();
+    pointer = e.pointerId; origin = localPoint(e);       // the touch point becomes the centre: no jump
+    try { area.setPointerCapture(pointer); } catch (_) {}
+    area.classList.add('active');
+    changed(false);
+  });
+  area.addEventListener('pointermove', e => {
+    if (pointer !== e.pointerId || !enabled) return;
+    e.preventDefault();
+    const p = localPoint(e);
+    let x = (p.x - origin.x) / travel, y = (p.y - origin.y) / travel;
+    const length = Math.hypot(x, y);
+    if (length > 1) { x /= length; y /= length; }
+    axes[xKey] = toAxis(x); axes[yKey] = toAxis(y);
+    knob.style.transform = 'translate(' + x * 36 + 'px,' + y * 36 + 'px)';
+    changed(false);
+  });
+  const end = e => { if (e.pointerId === pointer) { reset(); changed(true); } };
+  area.addEventListener('pointerup', end);
+  area.addEventListener('pointercancel', end);
+  area.addEventListener('lostpointercapture', end);
+  sticks.push({reset});
+}
+
+function releaseAll() {
+  sources.clear(); latched = 0;
+  sticks.forEach(s => s.reset());
+  paint();
+  changed(true);
+}
+
+// ------------------------------------------------------------------ transport
+// Binary WebSocket frames, see docs/PROTOCOL.md. Falls back to HTTP polling
+// of /state when a WebSocket cannot be opened at all.
+let ws = null, wsEverOpened = false, wsFailures = 0, polling = false, pollBusy = false;
+let seq = 0, lastSent = 0, lastSentMask = -1, sendTimer = 0, dirty = false;
+let pingToken = 0, pingSentAt = 0, lastStatusAt = 0, rtt = null;
+let boardOnline = false, hostLinked = false, feedback = {strong: 0, weak: 0, led: 0, color: [0, 0, 0]};
+let rumbleTimer = 0, restarting = false;
+
+function frame() {
+  const withMotion = !!motion, bytes = new Uint8Array(withMotion ? 24 : 12), view = new DataView(bytes.buffer);
+  bytes[0] = 1; bytes[1] = seq = (seq + 1) & 255;
+  view.setUint32(2, mask(), true);
+  bytes[6] = axes.lx; bytes[7] = axes.ly; bytes[8] = axes.rx; bytes[9] = axes.ry;
+  if (withMotion) for (let i = 0; i < 3; i++) { view.setInt16(12 + 2 * i, motion.a[i], true); view.setInt16(18 + 2 * i, motion.g[i], true); }
+  return bytes;
+}
+function changed(urgent) {
+  dirty = true;
+  if (urgent) { clearTimeout(sendTimer); sendTimer = 0; flush(); }
+  else if (!sendTimer) sendTimer = setTimeout(flush, 0);
+}
+function flush() {
+  sendTimer = 0;
+  const now = performance.now(), m = mask();
+  if (polling) { poll(); return; }
+  if (!ws || ws.readyState !== 1) return;
+  // Stick motion is throttled; button edges always go out at once.
+  if (m === lastSentMask && (now - lastSent < 8 || ws.bufferedAmount > 512)) { sendTimer = setTimeout(flush, 8); return; }
+  ws.send(frame());
+  lastSent = now; lastSentMask = m; dirty = false;
+}
+async function poll() {
+  if (pollBusy || document.hidden) return;
+  pollBusy = true; dirty = false;
+  const started = performance.now(), control = new AbortController(), timeout = setTimeout(() => control.abort(), 400);
+  try {
+    const q = '/state?m=' + mask() + '&lx=' + axes.lx + '&ly=' + axes.ly + '&rx=' + axes.rx + '&ry=' + axes.ry;
+    const response = await fetch(q, {cache: 'no-store', signal: control.signal});
+    if (!response.ok) throw Error('HTTP');
+    const data = await response.json();
+    rtt = performance.now() - started; lastSent = performance.now();
+    onStatus(true, !!data.usb, data.l, data.r, feedback.led, feedback.color);
+  } catch (_) { onStatus(false, false, 0, 0, 0, [0, 0, 0]); }
+  finally { clearTimeout(timeout); pollBusy = false; if (dirty) setTimeout(poll, 0); }
+}
+function connect() {
+  if (polling) return;
+  let socket;
+  try { socket = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws'); }
+  catch (_) { polling = true; return; }
+  ws = socket;
+  socket.binaryType = 'arraybuffer';
+  socket.onopen = () => { wsEverOpened = true; wsFailures = 0; lastStatusAt = performance.now(); lastSentMask = -1; loadInfo(); flush(); };
+  socket.onmessage = e => {
+    const d = new Uint8Array(e.data);
+    if (d[0] !== 0x82 || d.length < 9) return;
+    lastStatusAt = performance.now();
+    if (d[1] === pingToken && pingSentAt) { rtt = lastStatusAt - pingSentAt; pingSentAt = 0; }
+    onStatus(true, !!(d[2] & 1), d[3], d[4], d[5], [d[6], d[7], d[8]]);
+  };
+  socket.onclose = () => {
+    if (ws !== socket) return;
+    ws = null;
+    onStatus(false, false, 0, 0, 0, [0, 0, 0]);
+    if (!wsEverOpened && ++wsFailures >= 3) { polling = true; loadInfo(); return; }
+    setTimeout(connect, 400);
+  };
+}
+setInterval(() => {                      // heartbeat, ping and dead-link detection
+  const now = performance.now();
+  if (polling) { if (now - lastSent > 45) poll(); return; }
+  if (!ws || ws.readyState !== 1) return;
+  if (now - lastStatusAt > 3000) { ws.close(); return; }
+  if (now - lastSent > 90 && !document.hidden) { lastSentMask = -1; flush(); }
+  if (!pingSentAt || now - pingSentAt > 1000) { pingToken = (pingToken % 255) + 1; pingSentAt = now; ws.send(new Uint8Array([2, pingToken])); }
+}, 50);
+
+function onStatus(online, linked, strong, weak, led, color) {
+  const rumbleChanged = strong !== feedback.strong || weak !== feedback.weak;
+  boardOnline = online; hostLinked = linked;
+  feedback = {strong, weak, led, color};
+  if (online && restarting) { restarting = false; notice(''); }
+  if (rumbleChanged) {
+    clearInterval(rumbleTimer);
+    vibrate(0);
+    if ((strong || weak) && rumbleOn) {
+      const pulse = () => vibrate(strong > 96 || weak > 160 ? 220 : [30, 30, 30, 30, 30, 30, 30]);
+      pulse(); rumbleTimer = setInterval(pulse, 200);
+    }
+  }
+  paintStatus();
+}
+function paintStatus() {
+  const status = $('status'), mode = info && info.modes.find(m => m.id === modeId);
+  status.dataset.link = !boardOnline ? 'none' : hostLinked ? 'host' : 'board';
+  status.classList.toggle('rumble', !!(feedback.strong || feedback.weak));
+  const text = $('statusText');
+  text.textContent = '';
+  if (!boardOnline) text.textContent = wsEverOpened || polling ? t('reconnecting') : t('connecting');
+  else {
+    const name = document.createElement('b');
+    name.textContent = mode ? mode.name : '…';
+    text.append(name, ' · ' + (!hostLinked ? t('waiting') : rtt === null ? (mode && mode.link === 'ble' ? t('linkBle') : t('linkUsb')) : Math.round(rtt) + ' ms'));
+  }
+  const [r, g, b] = feedback.color;
+  status.style.boxShadow = r || g || b ? 'inset 0 -3px 0 rgb(' + r + ',' + g + ',' + b + ')' : '';
+  $('leds').classList.toggle('any', !!feedback.led);
+  [...$('leds').children].forEach((dot, i) => dot.classList.toggle('on', !!(feedback.led & (1 << i))));
+}
+
+// ------------------------------------------------------------------ board info and skins
+async function loadInfo() {
+  try {
+    const response = await fetch('/api/info', {cache: 'no-store'});
+    if (!response.ok) throw Error('HTTP ' + response.status);
+    info = await response.json();
+    modeId = info.mode; pickedMode = '';
+    $('ssid').value = info.ssid;
+    applySkin(); renderModes(); paintStatus();
+  } catch (_) { setTimeout(() => { if (!info) loadInfo(); }, 1500); }
+}
+function applySkin() {
+  const mode = info && info.modes.find(m => m.id === modeId), family = mode ? mode.family : 'generic', skin = SKIN[family];
+  pad.dataset.family = family;
+  faceButtons.forEach((el, i) => el.textContent = skin.face[i]);
+  let l1 = skin.l1, r1 = skin.r1;
+  if (modeId === 'xid') { l1 = 'WHITE'; r1 = 'BLACK'; }
+  $('l1').textContent = l1; $('r1').textContent = r1; $('l2').textContent = skin.l2; $('r2').textContent = skin.r2;
+  $('home').textContent = skin.home;
+  const pick = table => table[modeId] || table['*'];
+  $('select').textContent = pick(t('select')); $('start').textContent = pick(t('start'));
+  const misc = t('misc')[modeId];
+  $('misc').classList.toggle('hide', !misc); $('misc').textContent = misc || '';
+  $('home').classList.toggle('hide', modeId === 'xid');
+  pad.classList.toggle('swap', layoutChoice === 'auto' ? skin.swap : layoutChoice === 'stick');
+}
+function renderModes() {
+  const host = $('modes');
+  host.textContent = '';
+  for (const mode of info ? info.modes : []) {
+    const el = document.createElement('button');
+    el.className = 'mode' + (mode.id === modeId ? ' current' : '') + (mode.id === pickedMode ? ' picked' : '');
+    el.disabled = !mode.available;
+    const tag = !mode.available ? t('unavailable') : mode.id === modeId ? t('current') : mode.link === 'ble' ? t('linkBle') : t('linkUsb');
+    const title = document.createElement('b'), small = document.createElement('small'), badge = document.createElement('span');
+    badge.className = 'tag'; badge.textContent = tag;
+    title.textContent = mode.name; title.prepend(badge);
+    small.textContent = mode.hosts;
+    el.append(title, small);
+    el.onclick = () => { pickedMode = mode.id === modeId ? '' : mode.id; renderModes(); };
+    host.append(el);
+  }
+  $('applyMode').disabled = !pickedMode;
+  $('modeHint').textContent = pickedMode ? t('pickHint') : '';
+  $('about').textContent = info ? 'OmniWebPad ' + info.version + ' · ' + info.board : '';
+}
+function notice(text) { $('notice').textContent = text; }
+async function configure(query) {
+  notice('');
+  try {
+    const response = await fetch('/api/config?' + query, {method: 'POST', cache: 'no-store'});
+    const data = await response.json();
+    if (!data.ok) throw Error(data.error || response.status);
+    if (data.reboot) { restarting = true; notice(t('restarting')); } else notice(t('saved'));
+  } catch (e) { notice(t('failed') + e.message); }
+}
+
+// ------------------------------------------------------------------ layout
+function typing() { const el = document.activeElement; return !!el && el.tagName === 'INPUT' && el.type === 'text'; }
+function layout() {
+  if (typing()) return;                  // the on-screen keyboard resizes the viewport; keep the sheet readable
+  releaseAll();
+  const w = window.innerWidth, h = window.innerHeight;
+  rotated = h > w;
+  const sw = Math.max(w, h), sh = Math.min(w, h);
+  stage.style.width = sw + 'px'; stage.style.height = sh + 'px';
+  stage.classList.toggle('rotated', rotated);
+  // The pad is 360 units tall and as wide as the screen allows, so the
+  // clusters sit under the thumbs on wide phones.
+  padWidth = Math.max(720, Math.min(900, Math.round(360 * (sw - 16) / (sh - 12))));
+  scale = Math.min((sw - 16) / padWidth, (sh - 12) / 360);
+  offsetX = (sw - padWidth * scale) / 2; offsetY = (sh - 360 * scale) / 2;
+  pad.style.width = padWidth + 'px';
+  pad.style.left = offsetX + 'px'; pad.style.top = offsetY + 'px';
+  pad.style.transform = 'scale(' + scale + ')';
+}
+
+// ------------------------------------------------------------------ settings UI
+function pause() { enabled = false; releaseAll(); }
+function resume() { enabled = overlay.hidden; changed(true); }
+function translate() {
+  document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+  for (const el of document.querySelectorAll('[data-t]')) el.textContent = t(el.dataset.t);
+  $('lang').textContent = lang === 'zh' ? 'English' : '中文';
+  $('ssid').placeholder = lang === 'zh' ? 'Wi-Fi 名称' : 'Wi-Fi name';
+  $('pass').placeholder = lang === 'zh' ? '新密码（留空则不修改）' : 'New password (blank keeps it)';
+  $('rumbleToggle').textContent = t(rumbleOn ? 'rumbleOn' : 'rumbleOff');
+  $('tickToggle').textContent = t(tickOn ? 'tickOn' : 'tickOff');
+  for (const el of $('layoutSeg').children) el.classList.toggle('on', el.dataset.v === layoutChoice);
+  applySkin(); renderModes(); paintStatus();
+}
+$('menu').onclick = () => { pause(); overlay.hidden = false; $('feelNote').textContent = navigator.vibrate ? '' : t('noVibrate'); };
+$('back').onclick = () => { overlay.hidden = true; $('diag').hidden = true; resume(); };
+$('release').onclick = releaseAll;
+$('lang').onclick = () => { lang = lang === 'zh' ? 'en' : 'zh'; store.set('lang', lang); translate(); };
+$('travel').value = travel; $('travelValue').textContent = travel;
+$('travel').oninput = e => { travel = +e.target.value; $('travelValue').textContent = travel; store.set('travel', travel); };
+$('layoutSeg').onclick = e => { if (!e.target.dataset.v) return; layoutChoice = e.target.dataset.v; store.set('layout', layoutChoice); translate(); };
+$('rumbleToggle').onclick = () => { rumbleOn = !rumbleOn; store.set('rumble', rumbleOn ? '1' : '0'); if (rumbleOn) vibrate(40); else { clearInterval(rumbleTimer); vibrate(0); } translate(); };
+$('tickToggle').onclick = () => { tickOn = !tickOn; store.set('tick', tickOn ? '1' : '0'); if (tickOn) vibrate(8); translate(); };
+$('applyMode').onclick = () => { if (pickedMode) configure('mode=' + encodeURIComponent(pickedMode)); };
+$('saveWifi').onclick = () => {
+  let query = 'ssid=' + encodeURIComponent($('ssid').value);
+  if ($('pass').value) query += '&pass=' + encodeURIComponent($('pass').value);
+  configure(query);
+};
+let factoryArmed = 0;
+$('factory').onclick = e => {
+  if (Date.now() - factoryArmed < 4000) { factoryArmed = 0; e.target.textContent = t('factory'); configure('reset=1'); return; }
+  factoryArmed = Date.now(); e.target.textContent = t('confirmFactory');
+  setTimeout(() => { if (factoryArmed) { factoryArmed = 0; e.target.textContent = t('factory'); } }, 4000);
+};
+$('diagButton').onclick = async () => {
+  const out = $('diag');
+  out.hidden = false;
+  try { out.textContent = JSON.stringify(await (await fetch('/api/status', {cache: 'no-store'})).json(), null, 1); }
+  catch (e) { out.textContent = String(e); }
+};
+const fullscreenTarget = document.documentElement;
+if (!fullscreenTarget.requestFullscreen) $('fullscreen').classList.add('hide');
+$('fullscreen').onclick = async () => {
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else { await fullscreenTarget.requestFullscreen({navigationUI: 'hide'}); if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape'); }
+  } catch (_) {}
+  layout();
+};
+
+// Motion (experimental): accelerometer in milli-g and gyro in 0.1 deg/s, pad frame.
+let motionSeen = false;
+function onMotion(e) {
+  const a = e.accelerationIncludingGravity, r = e.rotationRate || {};
+  if (!enabled || !a || ![a.x, a.y, a.z].every(Number.isFinite)) return;
+  motionSeen = true;
+  const angle = (((screen.orientation && screen.orientation.angle) || 0) + (rotated ? 90 : 0)) * Math.PI / 180, c = Math.cos(angle), s = Math.sin(angle);
+  const clamp = v => Math.max(-32768, Math.min(32767, Math.round(v)));
+  const turn = (x, y) => [x * c + y * s, -x * s + y * c];
+  const [ax, ay] = turn(a.x, a.y), [gx, gy] = turn(r.beta || 0, r.gamma || 0);
+  motion = {a: [ax, ay, a.z].map(v => clamp(v / 9.80665 * 1000)), g: [gx, gy, r.alpha || 0].map(v => clamp(v * 10))};
+  changed(false);
+}
+$('motion').onclick = async () => {
+  try {
+    if (!window.isSecureContext || typeof DeviceMotionEvent === 'undefined') throw Error(t('motionNeedsHttps'));
+    if (DeviceMotionEvent.requestPermission && await DeviceMotionEvent.requestPermission() !== 'granted') throw Error(t('motionDenied'));
+    window.removeEventListener('devicemotion', onMotion);
+    window.addEventListener('devicemotion', onMotion);
+    motionSeen = false;
+    setTimeout(() => { $('feelNote').textContent = t(motionSeen ? 'motionOn' : 'motionNone'); }, 1500);
+  } catch (e) { $('feelNote').textContent = e.message; }
+};
+
+// ------------------------------------------------------------------ lifecycle
+window.addEventListener('blur', pause);
+window.addEventListener('focus', resume);
+window.addEventListener('pagehide', pause);
+document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); else resume(); });
+window.addEventListener('resize', layout);
+document.addEventListener('focusout', () => setTimeout(layout, 300));
+for (const type of ['contextmenu', 'selectstart', 'dragstart', 'gesturestart'])
+  document.addEventListener(type, e => { if (!e.target.closest || !e.target.closest('input')) e.preventDefault(); }, {passive: false});
+
+layout();
+translate();
+connect();
+loadInfo();
+</script>
+</body>
+</html>
