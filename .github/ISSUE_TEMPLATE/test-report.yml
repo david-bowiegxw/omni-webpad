@@ -1,0 +1,98 @@
+name: 硬件测试报告 / Hardware test report
+description: 你在真机上试了某个组合——能用、部分能用或不能用都请告诉我们 / You tried a combination on real hardware — working, partly working or not
+title: "[Test] <board> + <controller type> on <host>"
+labels: ["test report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        除了 PS3 上的 DualShock 3，其余组合都还没有实机验证过。**“能用”的报告和“不能用”的一样有价值。**
+        Apart from the DualShock 3 on a PS3, no combination has been confirmed on hardware yet. **A "works" report is as valuable as a failure.**
+  - type: dropdown
+    id: result
+    attributes:
+      label: 结果 / Result
+      options:
+        - ✅ 完全可用 / Works
+        - ⚠️ 部分可用 / Partly works
+        - ❌ 不能用 / Does not work
+    validations:
+      required: true
+  - type: dropdown
+    id: board
+    attributes:
+      label: 开发板 / Board
+      options:
+        - Raspberry Pi Pico W
+        - Raspberry Pi Pico 2 W
+        - ESP32-S2
+        - ESP32-S3
+        - ESP32-C3
+        - ESP32-C6
+        - ESP32 (classic)
+        - 其他 / Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 固件版本 / Firmware version
+      description: 设置页底部“关于”里有 / Shown under About at the bottom of the settings
+      placeholder: "0.5.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: 手柄类型 / Controller type
+      options:
+        - Xbox 360
+        - Switch wired pad
+        - DualShock 4
+        - DualSense
+        - DualShock 3
+        - Xbox (original)
+        - Generic gamepad / 通用手柄
+        - Bluetooth gamepad / 蓝牙手柄
+    validations:
+      required: true
+  - type: dropdown
+    id: players
+    attributes:
+      label: 玩家人数 / Players
+      options:
+        - "1"
+        - "2"
+        - "3"
+        - "4"
+    validations:
+      required: true
+  - type: input
+    id: host
+    attributes:
+      label: 主机 / Host
+      description: 主机型号与系统版本，或操作系统、游戏/软件 / Console model and system version, or OS and game/app
+      placeholder: "PS3 CECH-2000 4.91 / Windows 11 23H2 + Steam / Switch 18.1"
+    validations:
+      required: true
+  - type: input
+    id: phone
+    attributes:
+      label: 手机与浏览器 / Phone and browser
+      placeholder: "Pixel 7, Chrome 130 / iPhone 15, Safari"
+  - type: textarea
+    id: details
+    attributes:
+      label: 现象 / What happened
+      description: 哪些按键、摇杆、振动正常，哪些不正常；主机识别成了什么设备 / Which buttons, sticks and rumble worked or not; what the host recognised the device as
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 诊断信息 / Diagnostics
+      description: 设置 ⚙ → 诊断信息，整段粘贴 / Settings ⚙ → Diagnostics, paste all of it
+      render: json
+  - type: markdown
+    attributes:
+      value: 请勿上传主机 Flash 备份、账号凭据或 Wi-Fi 密码。/ Do not attach console flash dumps, account credentials or Wi-Fi passwords.
