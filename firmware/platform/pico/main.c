@@ -20,6 +20,8 @@
 
 #define MAX_CLIENTS 8
 #define IDLE_TIMEOUT_MS 10000
+#define UNUSED_TIMEOUT_MS 3000    // connected but never sent a byte (browser preconnect)
+#define EVICT_GRACE_MS 300        // a connection this fresh is never evicted
 #define SETTINGS_OFFSET (PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE)
 #define FACTORY_RESET_HOLD_MS 5000
 
@@ -79,7 +81,7 @@ typedef struct {
     struct tcp_pcb *pcb;
     const uint8_t *blob;          // static data still to be queued
     unsigned blob_left;
-    bool close_requested;
+    bool close_requested, used;
     uint32_t last_activity;
     server_conn_t conn;
 } client_t;
@@ -150,7 +152,8 @@ static err_t on_sent(void *arg, struct tcp_pcb *pcb, u16_t len) {
 static err_t on_poll(void *arg, struct tcp_pcb *pcb) {
     client_t *c = arg;
     (void)pcb;
-    if (plat_millis() - c->last_activity > IDLE_TIMEOUT_MS) return finish(c, true);
+    uint32_t idle = plat_millis() - c->last_activity;
+    if (idle > IDLE_TIMEOUT_MS || (!c->used && idle > UNUSED_TIMEOUT_MS)) return finish(c, true);
     pump(c);
     return ERR_OK;
 }
@@ -164,6 +167,7 @@ static err_t on_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err) 
     tcp_recved(pcb, p->tot_len);
     pbuf_free(p);
     c->last_activity = plat_millis();
+    c->used = true;
     if (!ok) return finish(c, true);
     if (c->close_requested && !c->blob_left) return finish(c, false);
     return ERR_OK;
@@ -172,11 +176,17 @@ static err_t on_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err) 
 static err_t on_accept(void *arg, struct tcp_pcb *pcb, err_t err) {
     (void)arg;
     client_t *c = NULL, *stale = NULL;
+    uint32_t now = plat_millis();
     for (unsigned i = 0; i < MAX_CLIENTS && !c; i++) {
-        if (!clients[i].pcb) c = &clients[i];
-        else if (!clients[i].conn.websocket && (!stale || clients[i].last_activity < stale->last_activity)) stale = &clients[i];
+        client_t *o = &clients[i];
+        if (!o->pcb) c = o;
+        else if (!o->conn.websocket && now - o->last_activity >= EVICT_GRACE_MS &&
+                 (!stale || (!o->used && stale->used) ||
+                  (o->used == stale->used && o->last_activity < stale->last_activity))) stale = o;
     }
-    if (err == ERR_OK && !c && stale) {   // browsers park idle connections; a new one matters more
+    // Browsers park spare sockets; one that never sent a request, or the
+    // quietest one past the grace period, makes way. A fresh one never does.
+    if (err == ERR_OK && !c && stale) {
         finish(stale, true);
         c = stale;
     }
@@ -186,8 +196,8 @@ static err_t on_accept(void *arg, struct tcp_pcb *pcb, err_t err) {
     }
     c->pcb = pcb;
     c->blob_left = 0;
-    c->close_requested = false;
-    c->last_activity = plat_millis();
+    c->close_requested = c->used = false;
+    c->last_activity = now;
     server_open(&c->conn, c);
     tcp_arg(pcb, c); tcp_recv(pcb, on_recv); tcp_sent(pcb, on_sent); tcp_err(pcb, on_error);
     tcp_poll(pcb, on_poll, 2);
