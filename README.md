@@ -14,7 +14,7 @@
 Phone browser ──Wi-Fi──▶ Pico W / ESP32 ──USB or Bluetooth LE──▶ console · PC · phone · tablet
 ```
 
-Formerly *PS3 Pico W Webpad*. Version 0.4 keeps the PS3 controller and adds seven more, five more boards and a rebuilt interface.
+Formerly *PS3 Pico W Webpad*. Version 0.4 kept the PS3 controller and added seven more, five more boards and a rebuilt interface; 0.5 lets one board serve up to four players.
 
 ## Controllers it can be
 
@@ -50,6 +50,24 @@ Buttons are mapped by position: the bottom face button is always the bottom face
 
 The C6, C3 and classic ESP32 have no USB device controller — their USB port is a serial/JTAG bridge that cannot enumerate as a gamepad — so they offer the Bluetooth gamepad only. For consoles you need a Pico W, Pico 2 W, ESP32-S2 or ESP32-S3. On an S2/S3 dev board with two connectors, use the one labelled **USB** (native), not **UART**/**COM**.
 
+The **ESP8266** is not supported: it has neither a USB device controller nor Bluetooth, so on its own it has no way to appear as a controller.
+
+## Several players
+
+One board can be up to four controllers, one per phone. Set **Players** in the settings; the board restarts.
+
+<img src="docs/controller-p2.png" alt="Second player's phone with a red P2 badge" width="49%"> <img src="docs/players.png" alt="Players setting" width="49%">
+
+| Controller type | What the host sees with 2–4 players |
+| --- | --- |
+| **Xbox 360** | An Xbox 360 Wireless Receiver. Each phone that joins switches on the next controller, and it switches off again when that phone leaves, just like wireless pads |
+| **Generic gamepad** | That many separate HID gamepads, present as soon as the board is plugged in |
+| PlayStation, Switch, original Xbox, Bluetooth | One pad per board. PS3, PS4 and Switch tell controllers apart by USB device, so use one board per player |
+
+Each phone takes the lowest free player and shows it as a coloured **P1**–**P4** badge; rumble reaches only the phone of the player the game addressed. A phone that reloads or drops off Wi-Fi gets its player back if it returns within four seconds; after that the player is free, and a phone that found every player taken joins automatically. Several boards also work side by side: each has its own Wi-Fi name.
+
+Multi-player mode has passed the same simulated tests as everything else but has not been tried on hardware: in particular, how Windows treats the receiver is unverified (Linux, SteamOS and Android drive it with the standard `xpad` driver). If it misbehaves, the generic gamepad or one board per player are the fallbacks.
+
 ## What has actually been tested
 
 This project is honest about the gap between "compiles" and "works on your console".
@@ -57,10 +75,10 @@ This project is honest about the gap between "compiles" and "works on your conso
 | Area | Evidence |
 | --- | --- |
 | Firmware core: every controller's report layout, USB descriptors, feature/control requests, tap latch, settings | Unit tests on every commit (`tests/core_test.c`) |
-| Page ↔ firmware: touch, multi-touch, D-pad, sticks, mode switching, Wi-Fi settings, reconnect | Chromium driving the real page against the real server core, 8 screen sizes (`tests/ui.test.cjs`) |
+| Page ↔ firmware: touch, multi-touch, D-pad, sticks, mode switching, Wi-Fi settings, reconnect, several phones as separate players | Chromium driving the real page against the real server core, 8 screen sizes (`tests/ui.test.cjs`) |
 | Pico W, Pico 2 W and all five ESP32 targets | Cross-compiled in CI |
 | DualShock 3 on a PS3 | The 0.1 firmware was used on a CECHL00 console including system recovery. 0.4 sends the same descriptors and report bytes from restructured code; it has **not** been re-run on a console yet |
-| Every other controller type, every ESP32 board, Pico 2 W | **Not yet run on hardware.** Written from the published protocols and checked by the tests above |
+| Every other controller type, multi-player mode, every ESP32 board, Pico 2 W | **Not yet run on hardware.** Written from the published protocols and checked by the tests above |
 | Motion | Experimental and normally blocked by browsers on plain `http://` pages |
 
 If you try a combination, please [open an issue](https://github.com/david-bowiegxw/omni-webpad/issues) with the result — working reports are as useful as failures. The settings page has a **Diagnostics** button whose output helps a lot.

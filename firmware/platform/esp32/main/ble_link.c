@@ -207,7 +207,7 @@ void ble_link_task(void) {
     if (now - last_send < app_mode->interval_ms) return;
     uint8_t report[PAD_REPORT_MAX];
     pad_state_t state;
-    app_next_state(&state);
+    app_next_state(0, &state);
     app_mode->build(&state, now, report);
     // Notify on change, plus a slow refresh in case a notification was dropped.
     if (memcmp(report, last_report, app_mode->report_len) == 0 && now - last_send < 500) return;

@@ -9,9 +9,18 @@
 #include <string.h>
 
 static server_conn_t *sockets[SERVER_MAX_WS];
-static server_conn_t *controller;       // WebSocket client that sent the latest input
-static uint32_t pushed_sequence;
+static server_conn_t *controller[PAD_MAX_PLAYERS];   // WebSocket that sent the player's latest input
 static bool pushed_link;
+
+// With several players each phone holds a seat (= player). A seat follows
+// the page's token, so a reload or a Wi-Fi hiccup gets the same player back.
+typedef struct {
+    uint32_t token;
+    server_conn_t *ws;      // NULL: polling client, or held for a vanished one
+    uint32_t seen;
+    bool used;
+} seat_t;
+static seat_t seats[PAD_MAX_PLAYERS];
 static char scratch[2560];              // single-threaded: one response is built at a time
 
 // ---------------------------------------------------------------- helpers
@@ -109,6 +118,64 @@ static bool query_number(const char *query, const char *key, unsigned long max, 
     return true;
 }
 
+static uint32_t query_token(const char *query) {
+    char text[12], *end;
+    if (!query_value(query, "id", text, sizeof(text)) || !isxdigit((unsigned char)text[0])) return 0;
+    unsigned long value = strtoul(text, &end, 16);
+    return *end ? 0 : (uint32_t)value;
+}
+
+// ---------------------------------------------------------------- players
+
+// Player for a client: everybody shares pad 0 with a single player. With
+// several, a known token gets its seat back, anyone else the lowest free one;
+// -1 when every seat is taken.
+static int8_t seat_claim(server_conn_t *ws, uint32_t token) {
+    if (app_players <= 1) return 0;
+    uint32_t now = plat_millis();
+    for (int8_t i = 0; i < (int8_t)app_players; i++) {
+        seat_t *s = &seats[i];
+        if (!s->used || !token || s->token != token) continue;
+        if (s->ws && s->ws != ws) s->ws->player = -2;   // same phone again: the newer connection wins
+        s->ws = ws;
+        s->seen = now;
+        return i;
+    }
+    for (int8_t i = 0; i < (int8_t)app_players; i++) {
+        seat_t *s = &seats[i];
+        if (s->ws || (s->used && now - s->seen <= SERVER_SEAT_HOLD_MS)) continue;
+        *s = (seat_t){token, ws, now, true};
+        app_release((uint8_t)i);
+        app_attach((uint8_t)i, true);
+        return i;
+    }
+    return -1;
+}
+
+static void seat_leave(server_conn_t *ws) {
+    for (uint8_t i = 0; i < PAD_MAX_PLAYERS; i++) {
+        if (seats[i].ws != ws) continue;
+        seats[i].ws = NULL;
+        seats[i].seen = plat_millis();
+        app_release(i);
+    }
+}
+
+static void seats_expire(void) {
+    uint32_t now = plat_millis();
+    for (uint8_t i = 0; i < PAD_MAX_PLAYERS; i++) {
+        seat_t *s = &seats[i];
+        if (!s->used || s->ws || now - s->seen <= SERVER_SEAT_HOLD_MS) continue;
+        s->used = false;
+        app_attach(i, false);
+    }
+}
+
+static const pad_feedback_t *feedback_for(int8_t player) {
+    static const pad_feedback_t none;
+    return player >= 0 && player < PAD_MAX_PLAYERS ? &pad_feedback[player] : &none;
+}
+
 // ---------------------------------------------------------------- JSON
 
 static const char *link_name(pad_link_t link) {
@@ -118,31 +185,38 @@ static const char *link_name(pad_link_t link) {
 static unsigned info_json(char *out, unsigned cap) {
     unsigned n = (unsigned)snprintf(
         out, cap, "{\"name\":\"OmniWebPad\",\"version\":\"" WEBPAD_VERSION "\",\"board\":\"%s\","
-        "\"mode\":\"%s\",\"link\":%s,\"ssid\":\"%s\",\"modes\":[",
+        "\"mode\":\"%s\",\"link\":%s,\"ssid\":\"%s\",\"players\":%u,\"players_setting\":%u,\"modes\":[",
         plat_board_name(), app_mode ? app_mode->id : "", plat_link_connected() ? "true" : "false",
-        app_settings.ssid);
+        app_settings.ssid, app_players, app_settings.players);
     for (unsigned i = 0; i < pad_mode_count && n < cap; i++) {
         const pad_mode_t *m = pad_modes[i];
         n += (unsigned)snprintf(
             out + n, cap - n, "%s{\"id\":\"%s\",\"name\":\"%s\",\"family\":\"%s\",\"hosts\":\"%s\","
-            "\"link\":\"%s\",\"available\":%s}",
+            "\"link\":\"%s\",\"available\":%s,\"max_players\":%u}",
             i ? "," : "", m->id, m->name, m->family, m->hosts, link_name(m->link),
-            (plat_link_mask() & (1u << m->link)) ? "true" : "false");
+            (plat_link_mask() & (1u << m->link)) ? "true" : "false", pad_mode_max_players(m));
     }
     if (n < cap) n += (unsigned)snprintf(out + n, cap - n, "]}");
     return n < cap ? n : cap - 1;
 }
 
 static unsigned status_json(char *out, unsigned cap) {
-    const pad_state_t *s = app_current_state();
     unsigned n = (unsigned)snprintf(
         out, cap, "{\"version\":\"" WEBPAD_VERSION "\",\"board\":\"%s\",\"mode\":\"%s\",\"link\":%s,"
-        "\"uptime_ms\":%lu,\"reports\":%lu,\"buttons\":%lu,\"lx\":%u,\"ly\":%u,\"rx\":%u,\"ry\":%u,"
-        "\"lt\":%u,\"rt\":%u,\"rumble\":[%u,%u],\"led\":%u,\"color\":[%u,%u,%u],\"log\":",
+        "\"uptime_ms\":%lu,\"reports\":%lu,\"players\":%u,\"pads\":[",
         plat_board_name(), app_mode ? app_mode->id : "", plat_link_connected() ? "true" : "false",
-        (unsigned long)plat_millis(), (unsigned long)app_reports_sent, (unsigned long)s->buttons,
-        s->lx, s->ly, s->rx, s->ry, s->lt, s->rt, pad_feedback.rumble_strong, pad_feedback.rumble_weak,
-        pad_feedback.led, pad_feedback.r, pad_feedback.g, pad_feedback.b);
+        (unsigned long)plat_millis(), (unsigned long)app_reports_sent, app_players);
+    for (uint8_t i = 0; i < app_players && n < cap; i++) {
+        const pad_state_t *s = app_current_state(i);
+        const pad_feedback_t *f = &pad_feedback[i];
+        n += (unsigned)snprintf(
+            out + n, cap - n, "%s{\"player\":%u,\"attached\":%s,\"buttons\":%lu,\"lx\":%u,\"ly\":%u,\"rx\":%u,"
+            "\"ry\":%u,\"lt\":%u,\"rt\":%u,\"rumble\":[%u,%u],\"led\":%u,\"color\":[%u,%u,%u]}",
+            i ? "," : "", i + 1, (app_players == 1 || (app_attached & (1u << i))) ? "true" : "false",
+            (unsigned long)s->buttons, s->lx, s->ly, s->rx, s->ry, s->lt, s->rt,
+            f->rumble_strong, f->rumble_weak, f->led, f->r, f->g, f->b);
+    }
+    if (n < cap) n += (unsigned)snprintf(out + n, cap - n, "],\"log\":");
     if (n >= cap) return cap - 1;
     n += app_log_json(out + n, cap - n - 2);
     out[n++] = '}';
@@ -166,13 +240,19 @@ static bool route_state(server_conn_t *c, const char *query) {
         if (!query_number(query, names[i], 255, &v)) return respond_error(c, 400, "invalid input");
         *fields[i] = (uint8_t)v;
     }
-    app_input(&state);
-    controller = NULL;
+    // Without an id (scripts) polling drives player 1 without taking a seat.
+    uint32_t token = query_token(query);
+    int8_t player = token ? seat_claim(NULL, token) : 0;
+    if (player >= 0) {
+        app_input((uint8_t)player, &state);
+        controller[player] = NULL;
+    }
     c->keep_alive = true;
-    char body[96];
-    snprintf(body, sizeof(body), "{\"usb\":%s,\"l\":%u,\"r\":%u,\"q\":%lu}",
-             plat_link_connected() ? "true" : "false", pad_feedback.rumble_strong,
-             pad_feedback.rumble_weak, (unsigned long)pad_feedback.sequence);
+    const pad_feedback_t *f = feedback_for(player);
+    char body[112];
+    snprintf(body, sizeof(body), "{\"usb\":%s,\"l\":%u,\"r\":%u,\"q\":%lu,\"p\":%d,\"n\":%u}",
+             plat_link_connected() ? "true" : "false", f->rumble_strong, f->rumble_weak,
+             (unsigned long)f->sequence, player, app_players);
     return respond_json(c, 200, body);
 }
 
@@ -194,6 +274,12 @@ static bool route_config(server_conn_t *c, const char *query) {
             if (!query_value(query, "ssid", value, sizeof(next.ssid))) return respond_error(c, 400, "invalid ssid");
             strcpy(next.ssid, value);
         }
+        if (strstr(query, "players=")) {
+            unsigned long players;
+            if (!query_number(query, "players", PAD_MAX_PLAYERS, &players) || !players)
+                return respond_error(c, 400, "players must be 1-4");
+            next.players = (uint8_t)players;
+        }
         if (strstr(query, "pass=")) {
             if (!query_value(query, "pass", value, sizeof(next.pass))) return respond_error(c, 400, "invalid password");
             strcpy(next.pass, value);
@@ -204,21 +290,24 @@ static bool route_config(server_conn_t *c, const char *query) {
     bool changed = memcmp(&next, &app_settings, sizeof(next)) != 0;
     if (changed) {
         if (!app_settings_save(&next)) return respond_error(c, 500, "could not store settings");
-        app_log("config mode=%s", next.mode);
-        app_release();
+        app_log("config mode=%s players=%u", next.mode, next.players);
+        app_release_all();
         app_request_reboot(700);
     }
     return respond_json(c, 200, changed ? "{\"ok\":true,\"reboot\":true}" : "{\"ok\":true,\"reboot\":false}");
 }
 
-static void status_frame(uint8_t token, uint8_t *out) {
+static void status_frame(const server_conn_t *c, uint8_t token, uint8_t *out) {
+    const pad_feedback_t *f = feedback_for(c->player);
     out[0] = WS_MSG_STATUS;
     out[1] = token;
     out[2] = plat_link_connected() ? 1 : 0;
-    out[3] = pad_feedback.rumble_strong;
-    out[4] = pad_feedback.rumble_weak;
-    out[5] = pad_feedback.led;
-    out[6] = pad_feedback.r; out[7] = pad_feedback.g; out[8] = pad_feedback.b;
+    out[3] = f->rumble_strong;
+    out[4] = f->rumble_weak;
+    out[5] = f->led;
+    out[6] = f->r; out[7] = f->g; out[8] = f->b;
+    out[9] = c->player >= 0 ? (uint8_t)c->player : 0xff;
+    out[10] = app_players;
 }
 
 static bool ws_send(server_conn_t *c, uint8_t opcode, const uint8_t *payload, unsigned len) {
@@ -231,12 +320,14 @@ static bool ws_send(server_conn_t *c, uint8_t opcode, const uint8_t *payload, un
 }
 
 static bool send_status(server_conn_t *c, uint8_t token) {
-    uint8_t status[9];
-    status_frame(token, status);
+    uint8_t status[WS_STATUS_LEN];
+    status_frame(c, token, status);
+    c->pushed_player = status[9];
+    c->pushed_sequence = feedback_for(c->player)->sequence;
     return ws_send(c, 0x2, status, sizeof(status));
 }
 
-static bool route_websocket(server_conn_t *c, const char *head) {
+static bool route_websocket(server_conn_t *c, const char *head, const char *query) {
     char key[96], accept[32];
     uint8_t digest[20];
     unsigned slot = 0;
@@ -253,6 +344,8 @@ static bool route_websocket(server_conn_t *c, const char *head) {
     if (!net_send(c->io, head_out, (unsigned)n, false)) return false;
     c->websocket = true;
     sockets[slot] = c;
+    c->token = query_token(query);
+    c->player = seat_claim(c, c->token);
     return send_status(c, 0);
 }
 
@@ -264,7 +357,7 @@ static bool route(server_conn_t *c, char *head) {
     else query = target + strlen(target);
     bool get = strcmp(method, "GET") == 0, post = strcmp(method, "POST") == 0;
 
-    if (get && strcmp(target, "/ws") == 0) return route_websocket(c, head);
+    if (get && strcmp(target, "/ws") == 0) return route_websocket(c, head, query);
     if (get && (strcmp(target, "/") == 0 || strcmp(target, "/index.html") == 0))
         return respond(c, 200, "text/html; charset=utf-8", page_gz, page_gz_len, true, true);
     if (get && strcmp(target, "/api/info") == 0)
@@ -327,8 +420,10 @@ static bool ws_message(server_conn_t *c, uint8_t opcode, const uint8_t *data, un
                 state.gyro[i] = get_s16(data + 18 + 2 * i);
             }
         }
-        controller = c;
-        app_input(&state);
+        if (c->player >= 0) {
+            controller[c->player] = c;
+            app_input((uint8_t)c->player, &state);
+        }
     }
     return true;
 }
@@ -361,6 +456,7 @@ static bool process_ws(server_conn_t *c, bool *progress) {
 void server_open(server_conn_t *conn, void *io) {
     memset(conn, 0, offsetof(server_conn_t, buffer));
     conn->io = io;
+    conn->player = -1;
 }
 
 bool server_feed(server_conn_t *conn, const uint8_t *data, unsigned len) {
@@ -384,17 +480,29 @@ bool server_feed(server_conn_t *conn, const uint8_t *data, unsigned len) {
 void server_closed(server_conn_t *conn) {
     for (unsigned i = 0; i < SERVER_MAX_WS; i++)
         if (sockets[i] == conn) sockets[i] = NULL;
-    if (controller == conn) {
-        controller = NULL;
-        app_release();
+    seat_leave(conn);
+    for (uint8_t i = 0; i < PAD_MAX_PLAYERS; i++) {
+        if (controller[i] != conn) continue;
+        controller[i] = NULL;
+        app_release(i);
     }
 }
 
 void server_poll(void) {
-    bool link = plat_link_connected();
-    if (link == pushed_link && pad_feedback.sequence == pushed_sequence) return;
+    seats_expire();
+    bool link = plat_link_connected(), link_changed = link != pushed_link;
     pushed_link = link;
-    pushed_sequence = pad_feedback.sequence;
-    for (unsigned i = 0; i < SERVER_MAX_WS; i++)
-        if (sockets[i] && !sockets[i]->closing) send_status(sockets[i], 0);
+    for (unsigned i = 0; i < SERVER_MAX_WS; i++) {
+        server_conn_t *c = sockets[i];
+        if (!c || c->closing) continue;
+        if (c->player == -1) c->player = seat_claim(c, c->token);   // a seat came free
+        uint8_t player = c->player >= 0 ? (uint8_t)c->player : 0xff;
+        if (link_changed || player != c->pushed_player || feedback_for(c->player)->sequence != c->pushed_sequence)
+            send_status(c, 0);
+    }
+}
+
+void server_reset(void) {
+    memset(seats, 0, sizeof(seats));
+    memset(controller, 0, sizeof(controller));
 }

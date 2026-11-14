@@ -80,12 +80,12 @@ static uint16_t get_report(uint8_t type, uint8_t id, uint8_t *buf, uint16_t cap)
     return size;
 }
 
-static void set_report(uint8_t type, uint8_t id, const uint8_t *buf, uint16_t len) {
+static void set_report(uint8_t player, uint8_t type, uint8_t id, const uint8_t *buf, uint16_t len) {
     if (type != PAD_REPORT_OUTPUT || id != 0x02 || len < 47) return;
     // valid_flag0, valid_flag1, right (weak) motor, left (strong) motor ... LEDs, RGB
-    if (buf[0] & 0x03) pad_set_rumble(buf[3], buf[2]);
-    if (buf[1] & 0x10) pad_set_led(buf[43] & 0x1f);
-    if (buf[1] & 0x04) pad_set_color(buf[44], buf[45], buf[46]);
+    if (buf[0] & 0x03) pad_set_rumble(player, buf[3], buf[2]);
+    if (buf[1] & 0x10) pad_set_led(player, buf[43] & 0x1f);
+    if (buf[1] & 0x04) pad_set_color(player, buf[44], buf[45], buf[46]);
 }
 
 static void reset(void) { sequence = 0; }

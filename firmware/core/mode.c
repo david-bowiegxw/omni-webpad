@@ -23,3 +23,7 @@ const pad_mode_t *pad_mode_select(const char *wanted, unsigned link_mask) {
         if (link_mask & (1u << pad_modes[i]->link)) return pad_modes[i];
     return NULL;
 }
+
+uint8_t pad_mode_max_players(const pad_mode_t *mode) {
+    return mode && mode->multi && mode->multi->players > 1 ? mode->multi->players : 1;
+}

@@ -1,7 +1,8 @@
 #include "pad.h"
 #include <string.h>
 
-pad_feedback_t pad_feedback;
+pad_feedback_t pad_feedback[PAD_MAX_PLAYERS];
+volatile uint8_t pad_presence_requests;
 uint8_t pad_identity[6] = {0x02, 0x57, 0x45, 0x42, 0x50, 0x44};
 
 void pad_neutral(pad_state_t *state) {
@@ -19,33 +20,38 @@ void pad_normalize(pad_state_t *state) {
     if (state->rt) state->buttons |= PAD_R2;
 }
 
-static void changed(void) { pad_feedback.sequence++; }
+static pad_feedback_t *target(uint8_t player) { return player < PAD_MAX_PLAYERS ? &pad_feedback[player] : NULL; }
 
-void pad_set_rumble(uint8_t strong, uint8_t weak) {
-    if (strong == pad_feedback.rumble_strong && weak == pad_feedback.rumble_weak) return;
-    pad_feedback.rumble_strong = strong;
-    pad_feedback.rumble_weak = weak;
-    changed();
+void pad_set_rumble(uint8_t player, uint8_t strong, uint8_t weak) {
+    pad_feedback_t *f = target(player);
+    if (!f || (strong == f->rumble_strong && weak == f->rumble_weak)) return;
+    f->rumble_strong = strong;
+    f->rumble_weak = weak;
+    f->sequence++;
 }
 
-void pad_set_led(uint8_t led) {
-    if (led == pad_feedback.led) return;
-    pad_feedback.led = led;
-    changed();
+void pad_set_led(uint8_t player, uint8_t led) {
+    pad_feedback_t *f = target(player);
+    if (!f || led == f->led) return;
+    f->led = led;
+    f->sequence++;
 }
 
-void pad_set_color(uint8_t r, uint8_t g, uint8_t b) {
-    if (r == pad_feedback.r && g == pad_feedback.g && b == pad_feedback.b) return;
-    pad_feedback.r = r;
-    pad_feedback.g = g;
-    pad_feedback.b = b;
-    changed();
+void pad_set_color(uint8_t player, uint8_t r, uint8_t g, uint8_t b) {
+    pad_feedback_t *f = target(player);
+    if (!f || (r == f->r && g == f->g && b == f->b)) return;
+    f->r = r;
+    f->g = g;
+    f->b = b;
+    f->sequence++;
 }
 
 void pad_feedback_reset(void) {
-    uint32_t sequence = pad_feedback.sequence + 1;
-    memset(&pad_feedback, 0, sizeof(pad_feedback));
-    pad_feedback.sequence = sequence;
+    for (unsigned i = 0; i < PAD_MAX_PLAYERS; i++) {
+        uint32_t sequence = pad_feedback[i].sequence + 1;
+        memset(&pad_feedback[i], 0, sizeof(pad_feedback[i]));
+        pad_feedback[i].sequence = sequence;
+    }
 }
 
 uint8_t pad_hat(uint32_t buttons) {

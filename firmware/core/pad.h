@@ -5,7 +5,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define WEBPAD_VERSION "0.4.0"
+#define WEBPAD_VERSION "0.5.0"
+#define PAD_MAX_PLAYERS 4         // pads one board can present at once
 
 enum {
     PAD_SELECT = 1u << 0,   // Select / Share / Create / Back / View / Minus
@@ -38,7 +39,7 @@ typedef struct {
     int16_t gyro[3];          // 0.1 deg/s around the same axes
 } pad_state_t;
 
-// Host -> controller feedback, published to the web UI.
+// Host -> controller feedback, published to the web UI. One per player.
 typedef struct {
     uint8_t rumble_strong, rumble_weak;
     uint8_t led;              // player LED bit mask where the host sets one
@@ -46,16 +47,21 @@ typedef struct {
     uint32_t sequence;        // increments whenever anything above changes
 } pad_feedback_t;
 
-extern pad_feedback_t pad_feedback;
+extern pad_feedback_t pad_feedback[PAD_MAX_PLAYERS];
 extern uint8_t pad_identity[6];   // stable per-board address used by personalities
 
 void pad_neutral(pad_state_t *state);
 // Clamp buttons and make digital triggers and analog triggers agree.
 void pad_normalize(pad_state_t *state);
-void pad_set_rumble(uint8_t strong, uint8_t weak);
-void pad_set_led(uint8_t led);
-void pad_set_color(uint8_t r, uint8_t g, uint8_t b);
-void pad_feedback_reset(void);
+// Out-of-range players are ignored.
+void pad_set_rumble(uint8_t player, uint8_t strong, uint8_t weak);
+void pad_set_led(uint8_t player, uint8_t led);
+void pad_set_color(uint8_t player, uint8_t r, uint8_t g, uint8_t b);
+void pad_feedback_reset(void);   // every player
+// A host asked which controllers are present (wireless receivers). The link
+// re-announces the players whose bits are set and clears them.
+extern volatile uint8_t pad_presence_requests;
+static inline void pad_presence_request(uint8_t player) { if (player < 8) pad_presence_requests |= (uint8_t)(1u << player); }
 
 // Helpers shared by personalities.
 uint8_t pad_hat(uint32_t buttons);                 // 0 = up, clockwise, 8 = centred

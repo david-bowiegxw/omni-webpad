@@ -4,9 +4,12 @@
 //
 //   omniwebpad-sim [--port 8787] [--board NAME] [--links usb,ble] [--settings FILE]
 //
-// stdout: "REPORT <mode> <hex>" whenever the outgoing report changes.
+// stdout: "REPORT <mode> <hex> <player>" whenever a pad's report changes
+//         (players count from 1), "PRESENCE <player> <0|1>" when a phone
+//         takes or leaves a player.
 // stdin:  "rumble <strong> <weak>", "led <mask>", "color <r> <g> <b>",
-//         "link <0|1>" simulate the host side.
+//         "link <0|1>" simulate the host side; "p<N> " in front of a
+//         feedback command addresses player N (default 1).
 #include "app.h"
 #include "platform.h"
 #include "server.h"
@@ -48,10 +51,13 @@ bool plat_settings_write(const uint8_t *data, unsigned len) {
 }
 
 static void command(char *line) {
-    unsigned a = 0, b = 0, c = 0;
-    if (sscanf(line, "rumble %u %u", &a, &b) == 2) pad_set_rumble((uint8_t)a, (uint8_t)b);
-    else if (sscanf(line, "led %u", &a) == 1) pad_set_led((uint8_t)a);
-    else if (sscanf(line, "color %u %u %u", &a, &b, &c) == 3) pad_set_color((uint8_t)a, (uint8_t)b, (uint8_t)c);
+    unsigned a = 0, b = 0, c = 0, player = 1;
+    int skip = 0;
+    if (sscanf(line, "p%u %n", &player, &skip) == 1 && skip) line += skip;
+    uint8_t p = (uint8_t)(player - 1);
+    if (sscanf(line, "rumble %u %u", &a, &b) == 2) pad_set_rumble(p, (uint8_t)a, (uint8_t)b);
+    else if (sscanf(line, "led %u", &a) == 1) pad_set_led(p, (uint8_t)a);
+    else if (sscanf(line, "color %u %u %u", &a, &b, &c) == 3) pad_set_color(p, (uint8_t)a, (uint8_t)b, (uint8_t)c);
     else if (sscanf(line, "link %u", &a) == 1) link_up = a != 0;
 }
 
@@ -73,13 +79,14 @@ int main(int argc, char **argv) {
 
     for (;;) {
         app_init();
+        server_reset();
         if (!app_mode || !sock_net_start((uint16_t)port, true)) {
             fprintf(stderr, "cannot start on port %u\n", port);
             return 1;
         }
-        printf("READY %s http://127.0.0.1:%u\n", app_mode->id, port);
+        printf("READY %s http://127.0.0.1:%u %u\n", app_mode->id, port, app_players);
 
-        uint8_t last[PAD_REPORT_MAX] = {0}, report[PAD_REPORT_MAX];
+        uint8_t last[PAD_MAX_PLAYERS][PAD_REPORT_MAX] = {{0}}, report[PAD_REPORT_MAX], announced = 0;
         bool first = true;
         uint32_t last_send = 0;
         reboot_requested = false;
@@ -105,20 +112,27 @@ int main(int argc, char **argv) {
             uint32_t now = plat_millis();
             if (now - last_send < app_mode->interval_ms) continue;
             last_send = now;
-            pad_state_t state;
-            app_next_state(&state);
-            // A fixed clock keeps time stamps and counters out of the comparison.
-            if (app_mode->reset) app_mode->reset();
-            memset(report, 0, sizeof(report));
-            app_mode->build(&state, 0, report);
-            app_reports_sent++;
-            if (first || memcmp(report, last, sizeof(report))) {
-                first = false;
-                memcpy(last, report, sizeof(report));
-                printf("REPORT %s ", app_mode->id);
-                for (unsigned i = 0; i < app_mode->report_len; i++) printf("%02x", report[i]);
-                printf("\n");
+            for (uint8_t p = 0; p < app_players; p++) {
+                uint8_t bit = (uint8_t)(1u << p);
+                if ((app_attached ^ announced) & bit) {
+                    announced ^= bit;
+                    printf("PRESENCE %u %u\n", p + 1, (announced & bit) ? 1 : 0);
+                }
+                pad_state_t state;
+                app_next_state(p, &state);
+                // A fixed clock keeps time stamps and counters out of the comparison.
+                if (app_mode->reset) app_mode->reset();
+                memset(report, 0, sizeof(report));
+                app_mode->build(&state, 0, report);
+                app_reports_sent++;
+                if (first || memcmp(report, last[p], sizeof(report))) {
+                    memcpy(last[p], report, sizeof(report));
+                    printf("REPORT %s ", app_mode->id);
+                    for (unsigned i = 0; i < app_mode->report_len; i++) printf("%02x", report[i]);
+                    printf(" %u\n", p + 1);
+                }
             }
+            first = false;
         }
         sock_net_stop();
         pad_feedback_reset();

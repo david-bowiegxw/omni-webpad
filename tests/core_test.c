@@ -4,6 +4,7 @@
 #include "server.h"
 #include "sha1.h"
 #include <assert.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -76,6 +77,25 @@ static unsigned input_bits(const uint8_t *d, unsigned len, uint8_t wanted_id, in
     return bits;
 }
 
+// Walks a configuration descriptor: lengths add up, endpoints are interrupt
+// endpoints big enough for the report, HID descriptors point at the map.
+static void walk_config(const pad_mode_t *m, const uint8_t *cfg, uint16_t len, unsigned *interfaces, unsigned *endpoints) {
+    unsigned offset = 0;
+    *interfaces = *endpoints = 0;
+    assert(cfg[1] == 2 && (cfg[2] | cfg[3] << 8) == len && (cfg[7] & 0x80));
+    while (offset < len) {
+        assert(cfg[offset] >= 2);
+        if (cfg[offset + 1] == 4) { assert(cfg[offset + 2] == *interfaces); (*interfaces)++; }
+        if (cfg[offset + 1] == 5) {
+            (*endpoints)++;
+            assert(cfg[offset + 3] == 3 && (cfg[offset + 4] | cfg[offset + 5] << 8) >= m->report_len + (m->report_id ? 1 : 0));
+        }
+        if (cfg[offset + 1] == 0x21 && m->link == PAD_LINK_USB_HID) assert((cfg[offset + 7] | cfg[offset + 8] << 8) == m->report_desc_len);
+        offset += cfg[offset];
+    }
+    assert(offset == len && cfg[4] == *interfaces);
+}
+
 static void test_descriptors(void) {
     for (unsigned i = 0; i < pad_mode_count; i++) {
         const pad_mode_t *m = pad_modes[i];
@@ -95,21 +115,25 @@ static void test_descriptors(void) {
         assert((dev[14] != 0) == (m->manufacturer != NULL));
         assert((dev[15] != 0) == (m->product != NULL));
         assert((dev[16] != 0) == (m->serial != NULL));
-        assert(cfg[1] == 2 && (cfg[2] | cfg[3] << 8) == m->config_len && (cfg[7] & 0x80));
-        // Walk the configuration: lengths add up, two interrupt endpoints.
-        unsigned offset = 0, endpoints = 0, hid_len = 0;
-        while (offset < m->config_len) {
-            assert(cfg[offset] >= 2);
-            if (cfg[offset + 1] == 5) {
-                endpoints++;
-                assert(cfg[offset + 3] == 3 && (cfg[offset + 4] | cfg[offset + 5] << 8) >= m->report_len + (m->report_id ? 1 : 0));
-            }
-            if (cfg[offset + 1] == 0x21 && m->link == PAD_LINK_USB_HID) hid_len = cfg[offset + 7] | cfg[offset + 8] << 8;
-            offset += cfg[offset];
+        unsigned interfaces, endpoints;
+        walk_config(m, cfg, m->config_len, &interfaces, &endpoints);
+        assert(interfaces == 1 && endpoints == 2);
+        if (m->link != PAD_LINK_USB_HID) assert(!m->report_desc);
+        assert(pad_mode_max_players(m) == (m->multi ? m->multi->players : 1));
+        if (!m->multi) continue;
+        // Multi-player variants: same identity towards the UI, one pad per interface.
+        const pad_mode_t *v = m->multi;
+        assert(strcmp(v->id, m->id) == 0 && v->link == m->link && v->players == PAD_MAX_PLAYERS && !v->multi && v->build);
+        assert(v->device_desc[0] == 18 && v->device_desc[4] == 0);   // per-interface class: a composite device
+        for (uint8_t n = 1; n <= v->players; n++) {
+            uint8_t built[PAD_CONFIG_MAX];
+            const uint8_t *vc = v->config_desc ? v->config_desc : built;
+            uint16_t len = v->config_desc ? v->config_len : v->config(n, built, sizeof(built));
+            walk_config(v, vc, len, &interfaces, &endpoints);
+            unsigned pads = v->config_desc ? v->players : n;
+            assert(interfaces == pads && endpoints == pads * (v->link == PAD_LINK_USB_RAW ? 2u : 1u));
+            if (v->config_desc) break;
         }
-        assert(offset == m->config_len && endpoints == 2);
-        if (m->link == PAD_LINK_USB_HID) assert(hid_len == m->report_desc_len);
-        else assert(!m->report_desc);
     }
     // DualShock 3 must stay byte-identical to the console-tested 0.x firmware.
     static const uint8_t ds3_device[18] = {18, 1, 0x00, 0x02, 0, 0, 0, 64, 0x4c, 0x05, 0x68, 0x02, 0x00, 0x01, 1, 2, 0, 1};
@@ -210,42 +234,51 @@ static void test_reports(void) {
     assert(r[0] == (0x01 | 0x08 | 0x10) && r[1] == (0x02 | 0x10) && r[2] == 4 && r[7] == 0 && r[8] == 3);
     build("ble", &s, r);
     assert(r[0] == 0x19 && r[2] == 4);
-    puts("reports: ds3, ds4, dualsense, xinput, xid, switch, hid, ble PASS");
+    // Xbox 360 wireless receiver: wired report behind a 4 byte header.
+    const pad_mode_t *rx = pad_mode_find("xinput")->multi;
+    pad_neutral(&s); s.buttons = PAD_SOUTH | PAD_UP; s.lx = 255; pad_normalize(&s);
+    memset(r, 0xee, sizeof(r)); rx->build(&s, 0, r);
+    static const uint8_t rx_head[6] = {0x00, 0x01, 0x00, 0xf0, 0x00, 0x13};
+    assert(rx->report_len == 29 && memcmp(r, rx_head, 6) == 0 && r[6] == 0x01 && r[7] == 0x10 && r[10] == 0xff && r[11] == 0x7f && r[28] == 0);
+    uint8_t presence[8];
+    assert(rx->presence(true, presence) == 2 && presence[0] == 0x08 && presence[1] == 0x80);
+    assert(rx->presence(false, presence) == 2 && presence[1] == 0x00);
+    puts("reports: ds3, ds4, dualsense, xinput, xid, switch, hid, ble, xbox 360 receiver PASS");
 }
 
 static void test_feedback(void) {
     const pad_mode_t *m;
     uint8_t buf[64];
     pad_feedback_reset();
-    uint32_t q = pad_feedback.sequence;
+    uint32_t q = pad_feedback[0].sequence;
 
     m = pad_mode_find("xinput");
-    m->out((const uint8_t[]){0x00, 0x08, 0x00, 0xaa, 0x55, 0, 0, 0}, 8);
-    assert(pad_feedback.rumble_strong == 0xaa && pad_feedback.rumble_weak == 0x55 && pad_feedback.sequence == q + 1);
-    m->out((const uint8_t[]){0x00, 0x08, 0x00, 0xaa, 0x55, 0, 0, 0}, 8);
-    assert(pad_feedback.sequence == q + 1);
-    m->out((const uint8_t[]){0x01, 0x03, 0x07}, 3);
-    assert(pad_feedback.led == 2);
+    m->out(0, (const uint8_t[]){0x00, 0x08, 0x00, 0xaa, 0x55, 0, 0, 0}, 8);
+    assert(pad_feedback[0].rumble_strong == 0xaa && pad_feedback[0].rumble_weak == 0x55 && pad_feedback[0].sequence == q + 1);
+    m->out(0, (const uint8_t[]){0x00, 0x08, 0x00, 0xaa, 0x55, 0, 0, 0}, 8);
+    assert(pad_feedback[0].sequence == q + 1);
+    m->out(0, (const uint8_t[]){0x01, 0x03, 0x07}, 3);
+    assert(pad_feedback[0].led == 2);
 
     m = pad_mode_find("ds3"); m->reset();
     memset(buf, 0, sizeof(buf)); buf[2] = 1; buf[4] = 0x80; buf[9] = 0x02;
-    m->set_report(PAD_REPORT_OUTPUT, 1, buf, 48);
-    assert(pad_feedback.rumble_strong == 0x80 && pad_feedback.rumble_weak == 255 && pad_feedback.led == 1);
+    m->set_report(0, PAD_REPORT_OUTPUT, 1, buf, 48);
+    assert(pad_feedback[0].rumble_strong == 0x80 && pad_feedback[0].rumble_weak == 255 && pad_feedback[0].led == 1);
     assert(m->get_report(PAD_REPORT_FEATURE, 0xf2, buf, 64) == 17 && memcmp(buf + 3, pad_identity, 6) == 0);
     assert(m->get_report(PAD_REPORT_FEATURE, 0x55, buf, 64) == 0);
     assert(m->get_report(PAD_REPORT_INPUT, 1, buf, 64) == 48);
 
     m = pad_mode_find("ds4");
     memset(buf, 0, sizeof(buf)); buf[0] = 0x03; buf[3] = 10; buf[4] = 20; buf[5] = 1; buf[6] = 2; buf[7] = 3;
-    m->set_report(PAD_REPORT_OUTPUT, 5, buf, 31);
-    assert(pad_feedback.rumble_strong == 20 && pad_feedback.rumble_weak == 10 && pad_feedback.b == 3);
+    m->set_report(0, PAD_REPORT_OUTPUT, 5, buf, 31);
+    assert(pad_feedback[0].rumble_strong == 20 && pad_feedback[0].rumble_weak == 10 && pad_feedback[0].b == 3);
     assert(m->get_report(PAD_REPORT_FEATURE, 0x02, buf, 64) == 36 && m->get_report(PAD_REPORT_FEATURE, 0xa3, buf, 64) == 48);
     assert(m->get_report(PAD_REPORT_FEATURE, 0x12, buf, 64) == 15 && buf[0] == pad_identity[5]);
 
     m = pad_mode_find("dualsense");
     memset(buf, 0, sizeof(buf)); buf[0] = 0x03; buf[1] = 0x14; buf[2] = 7; buf[3] = 8; buf[43] = 4; buf[44] = 9;
-    m->set_report(PAD_REPORT_OUTPUT, 2, buf, 47);
-    assert(pad_feedback.rumble_strong == 8 && pad_feedback.rumble_weak == 7 && pad_feedback.led == 4 && pad_feedback.r == 9);
+    m->set_report(0, PAD_REPORT_OUTPUT, 2, buf, 47);
+    assert(pad_feedback[0].rumble_strong == 8 && pad_feedback[0].rumble_weak == 7 && pad_feedback[0].led == 4 && pad_feedback[0].r == 9);
     assert(m->get_report(PAD_REPORT_FEATURE, 0x05, buf, 64) == 40 && m->get_report(PAD_REPORT_FEATURE, 0x09, buf, 64) == 19);
     assert(m->get_report(PAD_REPORT_FEATURE, 0x20, buf, 64) == 63);
 
@@ -257,8 +290,19 @@ static void test_feedback(void) {
     setup = (pad_setup_t){0xc1, 0x77, 0, 0, 0}; assert(m->control_in(&setup, buf, 64) == -1);
     setup = (pad_setup_t){0x21, 0x09, 0x0200, 0, 6};
     assert(m->control_out(&setup, (const uint8_t[]){0, 6, 0, 0x33, 0, 0x44}, 6));
-    assert(pad_feedback.rumble_strong == 0x33 && pad_feedback.rumble_weak == 0x44);
-    puts("feedback: rumble, LEDs, feature and control requests PASS");
+    assert(pad_feedback[0].rumble_strong == 0x33 && pad_feedback[0].rumble_weak == 0x44);
+    // Receiver: feedback lands on the player whose slot received it.
+    m = pad_mode_find("xinput")->multi;
+    pad_feedback_reset();
+    m->out(2, (const uint8_t[]){0x00, 0x01, 0x0f, 0xc0, 0x00, 0x11, 0x22, 0, 0, 0, 0, 0}, 12);
+    assert(pad_feedback[2].rumble_strong == 0x11 && pad_feedback[2].rumble_weak == 0x22 && pad_feedback[0].rumble_strong == 0);
+    m->out(1, (const uint8_t[]){0x00, 0x00, 0x08, 0x43, 0, 0, 0, 0, 0, 0, 0, 0}, 12);
+    assert(pad_feedback[1].led == 2);
+    pad_presence_requests = 0;
+    m->out(3, (const uint8_t[]){0x08, 0x00, 0x0f, 0xc0, 0, 0, 0, 0, 0, 0, 0, 0}, 12);
+    assert(pad_presence_requests == 0x08);
+    pad_set_rumble(PAD_MAX_PLAYERS, 1, 1);   // out of range: ignored
+    puts("feedback: rumble, LEDs, feature and control requests, per-player receiver PASS");
 }
 
 // ---------------------------------------------------------------- app
@@ -270,26 +314,26 @@ static void test_queue(void) {
     assert(strcmp(app_mode->id, "xinput") == 0 && strncmp(app_settings.ssid, "OmniWebPad-", 11) == 0);
 
     // A tap that arrives as two messages in one burst is still seen once.
-    pad_neutral(&s); s.buttons = PAD_SOUTH; app_input(&s);
-    s.buttons = 0; app_input(&s);
-    app_next_state(&out); assert(out.buttons == PAD_SOUTH);
-    app_next_state(&out); assert(out.buttons == 0);
-    app_next_state(&out); assert(out.buttons == 0);
+    pad_neutral(&s); s.buttons = PAD_SOUTH; app_input(0, &s);
+    s.buttons = 0; app_input(0, &s);
+    app_next_state(0, &out); assert(out.buttons == PAD_SOUTH);
+    app_next_state(0, &out); assert(out.buttons == 0);
+    app_next_state(0, &out); assert(out.buttons == 0);
 
     // Analog-only changes coalesce to the newest value.
-    for (unsigned i = 0; i < 100; i++) { s.lx = (uint8_t)i; app_input(&s); }
-    app_next_state(&out); assert(out.lx == 99);
+    for (unsigned i = 0; i < 100; i++) { s.lx = (uint8_t)i; app_input(0, &s); }
+    app_next_state(0, &out); assert(out.lx == 99);
 
     // The lease releases everything when the client goes quiet.
-    s.buttons = PAD_EAST; s.lx = 3; app_input(&s);
-    app_next_state(&out); assert(out.buttons == PAD_EAST);
+    s.buttons = PAD_EAST; s.lx = 3; app_input(0, &s);
+    app_next_state(0, &out); assert(out.buttons == PAD_EAST);
     clock_ms += APP_LEASE_MS + 1;
-    app_next_state(&out); assert(out.buttons == 0 && out.lx == 128);
+    app_next_state(0, &out); assert(out.buttons == 0 && out.lx == 128);
 
     // Overflow keeps the newest edges.
-    for (unsigned i = 0; i < 40; i++) { s.buttons = (i & 1) ? PAD_UP : 0; app_input(&s); }
+    for (unsigned i = 0; i < 40; i++) { s.buttons = (i & 1) ? PAD_UP : 0; app_input(0, &s); }
     unsigned drained = 0;
-    do { app_next_state(&out); drained++; } while (drained < 16);
+    do { app_next_state(0, &out); drained++; } while (drained < 16);
     assert(out.buttons == PAD_UP);
 
     // Settings round trip and validation.
@@ -307,7 +351,35 @@ static void test_queue(void) {
     stored_valid = false; links = PAD_LINK_MASK_BLE; app_init();
     assert(strcmp(app_mode->id, "ble") == 0);
     links = PAD_LINK_MASK_USB | PAD_LINK_MASK_BLE; app_init();
-    puts("app: tap latch, coalescing, lease, overflow, settings PASS");
+
+    // 0.4 settings (no players byte, checksum over the shorter struct) still load.
+    stored_valid = false; app_init();
+    next = app_settings; strcpy(next.ssid, "Old Pad"); next.players = 1;
+    assert(app_settings_save(&next));
+    stored[4 + offsetof(app_settings_t, players)] = 0;
+    uint32_t hash = 2166136261u;
+    for (unsigned i = 0; i < offsetof(app_settings_t, players); i++) hash = (hash ^ stored[4 + i]) * 16777619u;
+    memcpy(stored + 4 + ((sizeof(app_settings_t) + 3) & ~3u), &hash, 4);
+    app_init();
+    assert(strcmp(app_settings.ssid, "Old Pad") == 0 && app_settings.players == 1 && app_players == 1);
+
+    // Several players: the multi variant and one queue per player.
+    next = app_settings; next.players = 3; assert(app_settings_save(&next)); app_init();
+    assert(app_players == 3 && app_mode == pad_mode_find("xinput")->multi);
+    pad_neutral(&s); s.buttons = PAD_NORTH; app_input(2, &s);
+    s.buttons = PAD_WEST; app_input(3, &s);                    // beyond the configured players
+    app_next_state(0, &out); assert(out.buttons == 0);
+    app_next_state(2, &out); assert(out.buttons == PAD_NORTH);
+    app_next_state(3, &out); assert(out.buttons == 0);
+    app_attach(1, true); assert(app_attached == 0x02);
+    app_attach(1, false); assert(app_attached == 0);
+    next.players = 0; assert(!app_settings_save(&next));
+    next.players = PAD_MAX_PLAYERS + 1; assert(!app_settings_save(&next));
+    // A personality without a multi variant serves one pad whatever is stored.
+    next.players = 4; strcpy(next.mode, "ds4"); assert(app_settings_save(&next)); app_init();
+    assert(app_players == 1 && app_mode == pad_mode_find("ds4"));
+    stored_valid = false; app_init();
+    puts("app: tap latch, coalescing, lease, overflow, settings, migration, players PASS");
 }
 
 // ---------------------------------------------------------------- server
@@ -359,13 +431,13 @@ static void test_server(void) {
     server_open(&c, &io); reset_output();
     assert(feed(&c, "GET /state?m=1 HTTP/1.1\r\n\r\nGET /state?m=2 HTTP/1.1\r\n\r\nGET /nothing HTTP/1.1\r\n\r\n"));
     assert(strstr((char *)sent, "Connection: keep-alive") && strstr((char *)sent, "404 Not Found") && close_seen);
-    app_release();
+    app_release_all();
 
     // Legacy polling endpoint.
     server_open(&c, &io); reset_output();
     assert(feed(&c, "GET /state?m=16384&lx=0&ly=255&rx=128&ry=128 HTTP/1.1\r\n\r\n"));
     assert(strstr((char *)sent, "\"usb\":true"));
-    app_next_state(&out); assert(out.buttons == PAD_SOUTH && out.lx == 0 && out.ly == 255);
+    app_next_state(0, &out); assert(out.buttons == PAD_SOUTH && out.lx == 0 && out.ly == 255);
     reset_output(); assert(feed(&c, "GET /state?m=999999999 HTTP/1.1\r\n\r\n")); assert(strstr((char *)sent, "400 Bad Request"));
     server_open(&c, &io); reset_output();
     assert(feed(&c, "GET /state?m=1&lx=300 HTTP/1.1\r\n\r\n")); assert(strstr((char *)sent, "400"));
@@ -401,34 +473,34 @@ static void test_server(void) {
     server_open(&c, &io); reset_output();
     assert(feed(&c, "GET /ws HTTP/1.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSEC-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"));
     assert(strstr((char *)sent, "101 Switching Protocols") && strstr((char *)sent, "Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"));
-    assert(c.websocket && sent[sent_len - 11] == 0x82 && sent[sent_len - 10] == 9 && sent[sent_len - 9] == WS_MSG_STATUS && sent[sent_len - 7] == 1);
+    assert(c.websocket && sent[sent_len - 13] == 0x82 && sent[sent_len - 12] == WS_STATUS_LEN && sent[sent_len - 11] == WS_MSG_STATUS && sent[sent_len - 9] == 1 && sent[sent_len - 2] == 0 && sent[sent_len - 1] == 1);
 
     uint8_t frame[64], state[24] = {WS_MSG_STATE, 7, 0x00, 0x40, 0x02, 0x00, 10, 20, 30, 40, 50, 0};
     unsigned n = ws_frame(frame, 2, state, 12);
     for (unsigned i = 0; i < n; i++) assert(server_feed(&c, frame + i, 1));
-    app_next_state(&out);
+    app_next_state(0, &out);
     assert(out.buttons == (PAD_SOUTH | PAD_MISC | PAD_L2) && out.lx == 10 && out.ry == 40 && out.lt == 50 && !out.has_motion);
     state[12] = 0xe8; state[13] = 0x03; state[18] = 0xff; state[19] = 0xff;
     n = ws_frame(frame, 2, state, 24);
     n += ws_frame(frame + n, 2, (const uint8_t[]){WS_MSG_PING, 0x5a}, 2);   // two frames in one read
     reset_output(); assert(server_feed(&c, frame, n));
-    app_next_state(&out); assert(out.has_motion && out.accel[0] == 1000 && out.gyro[0] == -1);
-    assert(sent_len == 11 && sent[2] == WS_MSG_STATUS && sent[3] == 0x5a);
+    app_next_state(0, &out); assert(out.has_motion && out.accel[0] == 1000 && out.gyro[0] == -1);
+    assert(sent_len == 13 && sent[2] == WS_MSG_STATUS && sent[3] == 0x5a);
     n = ws_frame(frame, 2, state, 13); assert(server_feed(&c, frame, n));     // wrong length: ignored
 
     // Feedback changes are pushed to every socket once.
     server_open(&d, &io);
     assert(feed(&d, "GET /ws HTTP/1.1\r\nSec-WebSocket-Key: AAAAAAAAAAAAAAAAAAAAAA==\r\n\r\n"));
     server_poll(); reset_output(); server_poll(); assert(sent_len == 0);
-    pad_set_rumble(200, 100); server_poll();
-    assert(sent_len == 22 && sent[5] == 200 && sent[6] == 100 && sent[11 + 5] == 200);
+    pad_set_rumble(0, 200, 100); server_poll();
+    assert(sent_len == 26 && sent[5] == 200 && sent[6] == 100 && sent[13 + 5] == 200);
     reset_output(); server_poll(); assert(sent_len == 0);
 
     // Losing the controlling socket releases the pad; a spectator does not.
     state[2] = 0x10; n = ws_frame(frame, 2, state, 12); assert(server_feed(&c, frame, n));
-    app_next_state(&out); assert(out.buttons & PAD_UP);
-    server_closed(&d); app_next_state(&out); assert(out.buttons & PAD_UP);
-    server_closed(&c); app_next_state(&out); assert(out.buttons == 0);
+    app_next_state(0, &out); assert(out.buttons & PAD_UP);
+    server_closed(&d); app_next_state(0, &out); assert(out.buttons & PAD_UP);
+    server_closed(&c); app_next_state(0, &out); assert(out.buttons == 0);
 
     // Unmasked client frames violate the protocol.
     server_open(&c, &io);
@@ -443,11 +515,95 @@ static void test_server(void) {
     puts("server: http, config, websocket handshake/frames, status push PASS");
 }
 
+static int8_t open_ws(server_conn_t *c, const char *id) {
+    static int io;
+    char request[160];
+    server_open(c, &io);
+    snprintf(request, sizeof(request), "GET /ws%s%s HTTP/1.1\r\nSec-WebSocket-Key: AAAAAAAAAAAAAAAAAAAAAA==\r\n\r\n", id ? "?id=" : "", id ? id : "");
+    reset_output();
+    assert(feed(c, request) && c->websocket);
+    assert(sent[sent_len - 11] == WS_MSG_STATUS && sent[sent_len - 1] == app_players);
+    assert(sent[sent_len - 2] == (c->player >= 0 ? c->player : 0xff));
+    return c->player;
+}
+
+static void press(server_conn_t *c, uint32_t buttons) {
+    uint8_t frame[32], state[12] = {WS_MSG_STATE, 1, (uint8_t)buttons, (uint8_t)(buttons >> 8), 0, 0, 128, 128, 128, 128, 0, 0};
+    unsigned n = ws_frame(frame, 2, state, 12);
+    assert(server_feed(c, frame, n));
+}
+
+static void test_players(void) {
+    static server_conn_t a, b, c, d;
+    pad_state_t out;
+    int io = 0;
+    stored_valid = false; app_init(); server_reset();
+    app_settings_t next = app_settings; next.players = 2; assert(app_settings_save(&next)); app_init(); server_reset();
+    assert(app_players == 2);
+
+    server_open(&d, &io); reset_output();
+    assert(feed(&d, "GET /api/info HTTP/1.1\r\n\r\n"));
+    assert(strstr((char *)sent, "\"players\":2,\"players_setting\":2") && strstr((char *)sent, "\"id\":\"xinput\",\"name\":\"Xbox 360\"") &&
+           strstr((char *)sent, "\"max_players\":4") && strstr((char *)sent, "\"id\":\"ds4\"") && strstr((char *)sent, "\"max_players\":1"));
+
+    // First come, first seated; the third phone waits.
+    assert(open_ws(&a, "a1") == 0 && open_ws(&b, "b2") == 1 && open_ws(&c, "c3") == -1);
+    assert(app_attached == 0x03);
+    press(&a, PAD_SOUTH); press(&b, PAD_EAST); press(&c, PAD_NORTH);
+    app_next_state(0, &out); assert(out.buttons == PAD_SOUTH);
+    app_next_state(1, &out); assert(out.buttons == PAD_EAST);
+
+    // Feedback goes to its own player only.
+    server_poll(); reset_output();
+    pad_set_rumble(1, 90, 0); server_poll();
+    assert(sent_len == 13 && sent[5] == 90 && sent[11] == 1);
+
+    // A reload gets the same player back while the seat is held.
+    server_closed(&b);
+    app_next_state(1, &out); assert(out.buttons == 0 && app_attached == 0x03);
+    server_poll(); assert(c.player == -1);
+    assert(open_ws(&b, "b2") == 1);
+    // Two connections with one id: the newer one wins.
+    assert(open_ws(&d, "b2") == 1 && b.player == -2);
+    press(&b, PAD_WEST); app_next_state(1, &out); assert(out.buttons == 0);
+    server_closed(&b);
+
+    // A seat whose phone stays away is handed to the waiting one.
+    server_closed(&d);
+    clock_ms += SERVER_SEAT_HOLD_MS + 1; reset_output(); server_poll();
+    assert(c.player == 1 && sent[sent_len - 2] == 1 && app_attached == 0x03);
+    press(&c, PAD_NORTH); app_next_state(1, &out); assert(out.buttons == PAD_NORTH);
+
+    // Leaving for good frees the seat after the hold.
+    server_closed(&c); clock_ms += SERVER_SEAT_HOLD_MS + 1; server_poll();
+    assert(app_attached == 0x01);
+
+    // Polling clients take seats by id too; without an id they drive player 1.
+    server_open(&d, &io); reset_output();
+    assert(feed(&d, "GET /state?m=8192&id=feed HTTP/1.1\r\n\r\n") && strstr((char *)sent, "\"p\":1,\"n\":2"));
+    app_next_state(1, &out); assert(out.buttons == PAD_EAST && app_attached == 0x03);
+    reset_output(); assert(feed(&d, "GET /state?m=0&id=f00d HTTP/1.1\r\n\r\n") && strstr((char *)sent, "\"p\":-1"));
+    reset_output(); assert(feed(&d, "GET /state?m=0 HTTP/1.1\r\n\r\n") && strstr((char *)sent, "\"p\":0"));
+
+    // The players setting is validated.
+    server_open(&d, &io); reset_output();
+    assert(feed(&d, "POST /api/config?players=5 HTTP/1.1\r\n\r\n") && strstr((char *)sent, "players must be 1-4"));
+    server_open(&d, &io); reset_output();
+    assert(feed(&d, "POST /api/config?players=0 HTTP/1.1\r\n\r\n") && strstr((char *)sent, "400"));
+    server_open(&d, &io); reset_output();
+    assert(feed(&d, "POST /api/config?players=4 HTTP/1.1\r\n\r\n") && strstr((char *)sent, "\"reboot\":true"));
+    app_init(); server_reset(); assert(app_players == 4);
+    server_closed(&a);
+    stored_valid = false; app_init(); server_reset();
+    puts("players: seats, waiting phone, reconnect, feedback routing, polling, setting PASS");
+}
+
 int main(void) {
     test_descriptors();
     test_reports();
     test_feedback();
     test_queue();
     test_server();
+    test_players();
     return 0;
 }
