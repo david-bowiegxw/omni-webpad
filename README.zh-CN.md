@@ -2,6 +2,9 @@
 
 [English](README.md) · [下载固件](https://github.com/david-bowiegxw/omni-webpad/releases) · [提交测试报告](https://github.com/david-bowiegxw/omni-webpad/issues/new?template=test-report.yml) · [反馈问题](https://github.com/david-bowiegxw/omni-webpad/issues/new?template=bug-report.yml)
 
+> [!IMPORTANT]
+> **本项目处于早期开发阶段。** 大部分手柄类型、开发板和多人模式目前只经过模拟测试，仍需实际使用的反馈来验证。欢迎任何形式的反馈：[测试报告](https://github.com/david-bowiegxw/omni-webpad/issues/new?template=test-report.yml)、[问题反馈](https://github.com/david-bowiegxw/omni-webpad/issues/new?template=bug-report.yml)、提问，以及 Pull Request。
+
 **一块几十块钱的 Wi-Fi 开发板插到主机或电脑上冒充手柄，手机浏览器就是触摸屏。** 不用装 App、不用焊接、不用联网、不用登录账号。开发板冒充哪种手柄，在设置页里点一下即可切换，几秒钟后它就以新身份重新被主机识别。
 
 ![Xbox 皮肤的触屏手柄](docs/controller-xbox.png)

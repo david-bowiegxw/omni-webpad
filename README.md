@@ -2,6 +2,9 @@
 
 [简体中文](README.zh-CN.md) · [Download firmware](https://github.com/david-bowiegxw/omni-webpad/releases) · [Report a test result](https://github.com/david-bowiegxw/omni-webpad/issues/new?template=test-report.yml) · [Report a bug](https://github.com/david-bowiegxw/omni-webpad/issues/new?template=bug-report.yml)
 
+> [!IMPORTANT]
+> **Early development.** Most controller types, boards and the multi-player mode have only been tested in simulation and still need real-world use to confirm them. Feedback of any kind is welcome: [test reports](https://github.com/david-bowiegxw/omni-webpad/issues/new?template=test-report.yml), [bug reports](https://github.com/david-bowiegxw/omni-webpad/issues/new?template=bug-report.yml), questions and pull requests.
+
 ![Build](https://github.com/david-bowiegxw/omni-webpad/actions/workflows/build.yml/badge.svg)
 ![License: MIT](https://img.shields.io/badge/project_license-MIT-blue.svg)
 ![Boards](https://img.shields.io/badge/boards-Pico_W_·_Pico_2_W_·_ESP32--S2/S3/C3/C6-c51a4a.svg)
