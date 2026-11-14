@@ -127,11 +127,11 @@ static uint16_t get_report(uint8_t type, uint8_t id, uint8_t *buf, uint16_t cap)
     return size;
 }
 
-static void set_report(uint8_t type, uint8_t id, const uint8_t *buf, uint16_t len) {
+static void set_report(uint8_t player, uint8_t type, uint8_t id, const uint8_t *buf, uint16_t len) {
     if (type != PAD_REPORT_OUTPUT || id != 0x05 || len < 8) return;
     // flags, 2 reserved, weak motor, strong motor, R, G, B
-    if (buf[0] & 0x01) pad_set_rumble(buf[4], buf[3]);
-    if (buf[0] & 0x02) pad_set_color(buf[5], buf[6], buf[7]);
+    if (buf[0] & 0x01) pad_set_rumble(player, buf[4], buf[3]);
+    if (buf[0] & 0x02) pad_set_color(player, buf[5], buf[6], buf[7]);
 }
 
 static void reset(void) { counter = 0; }

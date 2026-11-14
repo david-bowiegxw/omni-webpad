@@ -20,9 +20,9 @@ Everything between the page and a controller personality uses one positional sta
 
 Sticks are 0–255 with 128 centred and +y down. Triggers are 0–255. A digital trigger bit with a zero analog value becomes 255, and a non-zero analog value sets the bit, so both forms always agree. Optional motion is accelerometer x/y/z in milli-g and gyro x/y/z in 0.1 °/s, in a frame with x right, y away from the player and z out of the pad face.
 
-## WebSocket `/ws`
+## WebSocket `/ws?id=TOKEN`
 
-Binary frames, little endian. Client frames must be masked and unfragmented (as browsers send them).
+`TOKEN` is up to 8 hex digits the page picks at random and keeps in local storage; it identifies the phone across reconnects (see [Players](#players)). Binary frames, little endian. Client frames must be masked and unfragmented (as browsers send them).
 
 Client → board:
 
@@ -36,9 +36,9 @@ Board → client:
 
 | Type | Bytes | Meaning |
 | --- | --- | --- |
-| `0x82` status | `82 token flags strong weak led r g b` — 9 bytes | `flags` bit 0: host link up (USB configured, or BLE subscribed). `strong`/`weak`: rumble motors. `led`: player LED mask. `r g b`: light bar |
+| `0x82` status | `82 token flags strong weak led r g b player players` — 11 bytes | `flags` bit 0: host link up (USB configured, or BLE subscribed). `strong`/`weak`: rumble motors. `led`: player LED mask. `r g b`: light bar. `player`: this connection's player, 0-based, `FF` while it waits for a free seat. `players`: how many pads the board serves |
 
-A status frame is sent on connect (`token` 0), in reply to each ping, and unsolicited (`token` 0) whenever the link state or host feedback changes.
+The feedback bytes are those of this connection's own player. A status frame is sent on connect (`token` 0), in reply to each ping, and unsolicited (`token` 0) whenever the link state, the connection's player or that player's feedback changes. Clients written for 0.4 can ignore the last two bytes.
 
 The page sends a state frame immediately on every button edge, throttles stick-only movement to one frame per 8 ms, and repeats the current state every 100 ms as a heartbeat. It pings once a second to measure the round trip and reconnects if no status arrives for 3 s.
 
@@ -46,23 +46,43 @@ The page sends a state frame immediately on every button edge, throttles stick-o
 
 Incoming states go into a 16-entry queue (`firmware/core/app.c`). The link takes one entry per outgoing report, so a press and release that arrive in the same TCP segment are still reported in order, each for at least one report. Consecutive states with identical buttons overwrite each other, which keeps stick movement from building a backlog. The page additionally holds every press for at least 40 ms.
 
-If no state arrives for 500 ms, or the controlling WebSocket closes, the pad returns to neutral. Several pages may connect (up to four WebSockets); the last one to send is in control.
+Each player has its own queue. If no state arrives for 500 ms, or the controlling WebSocket closes, that pad returns to neutral.
+
+## Players
+
+With one player (the default) every page drives the same pad and the last one to send is in control, as before. Up to four WebSockets may be open.
+
+With 2–4 players (`POST /api/config?players=N`, for personalities whose `max_players` is above 1) each connection is seated:
+
+- A token that already holds a seat gets it back. If another connection still holds it, the newer connection wins and the older one stops being a player.
+- Otherwise the connection takes the lowest free seat, or waits (`player` = `FF`) and is seated automatically as soon as one frees up.
+- When a connection closes, its pad returns to neutral but the seat stays reserved for its token for 4 s, so a reload or a Wi-Fi hiccup keeps the player. After that the seat is free and the controller disconnects (receiver mode).
+- Polling clients that send `id` are seated the same way and keep their seat while they poll. Without `id`, `/state` drives player 1 without a seat, for scripts.
+
+How the host sees the players depends on the personality:
+
+| Personality | Single player | Several players |
+| --- | --- | --- |
+| `xinput` | Wired Xbox 360 controller 045E:028E | Xbox 360 Wireless Receiver 045E:0719 with four controller slots; a slot reports a connected controller (`08 80`) only while a phone holds that player |
+| `hid` | One HID gamepad | One HID interface per player (bcdDevice 2.00), all present from enumeration |
+| all others | One pad | Not available: use one board per player |
 
 ## HTTP API
 
 | Request | Result |
 | --- | --- |
 | `GET /` | The page |
-| `GET /api/info` | Firmware version, board, active mode, link state, Wi-Fi name, and every controller type with `available` for this board |
-| `GET /api/status` | Diagnostics: current state, report counter, host feedback, recent USB/BLE events |
+| `GET /api/info` | Firmware version, board, active mode, link state, Wi-Fi name, `players` (served now) and `players_setting` (stored), and every controller type with `available` for this board and its `max_players` |
+| `GET /api/status` | Diagnostics: report counter, and per pad (`pads`): whether a phone holds it, current state, host feedback; recent USB/BLE events |
 | `POST /api/config?mode=ID` | Select a controller type |
+| `POST /api/config?players=N` | Number of players, 1–4. Applies to personalities that support several; others serve one pad and keep the value for later |
 | `POST /api/config?ssid=NAME&pass=PASSWORD` | Change the access point (name 1–32, password 8–63 printable ASCII, no `"` or `\`) |
 | `POST /api/config?reset=1` | Factory defaults |
-| `GET /state?m=MASK&lx=&ly=&rx=&ry=&lt=&rt=` | Polling input for scripts and browsers without WebSocket. Only `m` is required. Replies `{"usb":bool,"l":strong,"r":weak,"q":sequence}` |
+| `GET /state?m=MASK&lx=&ly=&rx=&ry=&lt=&rt=&id=TOKEN` | Polling input for scripts and browsers without WebSocket. Only `m` is required. Replies `{"usb":bool,"l":strong,"r":weak,"q":sequence,"p":player,"n":players}`; `p` is -1 when no seat is free |
 
 `/api/config` answers `{"ok":true,"reboot":true}` and restarts the board about 0.7 s later when something changed; errors are `{"ok":false,"error":"…"}` with status 400. Parameters are URL-encoded in the query string; a request body is ignored.
 
-Settings are stored in the last flash sector on Pico boards and in NVS on ESP32. Holding BOOTSEL/BOOT for five seconds while running restores defaults.
+Settings are stored in the last flash sector on Pico boards and in NVS on ESP32. The player count occupies what was a padding byte in 0.4, so settings saved by 0.4 load unchanged with one player. Holding BOOTSEL/BOOT for five seconds while running restores defaults.
 
 ## Controller personalities
 
@@ -71,6 +91,7 @@ Each file in `firmware/core/modes/` provides descriptors and a `build()` that tu
 | ID | USB ID | Interface | Input report |
 | --- | --- | --- | --- |
 | `xinput` | 045E:028E | Vendor FF/5D/01, interrupt IN/OUT | 20 bytes: `00 14`, buttons (2), LT, RT, LX, LY, RX, RY (i16, up positive) |
+| `xinput`, 2–4 players | 045E:0719 | Four vendor FF/5D/81 interfaces, interrupt IN/OUT each | 29 bytes: `00 01 00 F0 00 13`, then bytes 2–19 of the wired report |
 | `xid` | 045E:0289 | Vendor 58/42, interrupt IN/OUT | 20 bytes: `00 14`, digital buttons, analog A B X Y Black White LT RT, sticks (i16) |
 | `switch` | 0F0D:0092 | HID | 8 bytes: buttons (u16), hat, LX LY RX RY, vendor |
 | `ds3` | 054C:0268 | HID, report 1 | 48 bytes: buttons 1–3, sticks 5–8, pressures 13–24, status 28–30, motion 40–47 (big endian) |
@@ -82,6 +103,7 @@ Each file in `firmware/core/modes/` provides descriptors and a `build()` that tu
 Host → controller traffic that is understood:
 
 - `xinput`: OUT `00 08 00 strong weak` rumble, `01 03 pattern` LED.
+- `xinput` receiver, per slot: `00 01 0F C0 00 strong weak` rumble, `00 00 08 4p` LED pattern `p`, `08 00 0F C0` presence inquiry (answered with `08 80` or `08 00`).
 - `xid`: vendor requests for the XID descriptor (`C1 06 4200`) and capabilities (`C1 01 0100/0200`), `GET_REPORT`, rumble by `SET_REPORT` or OUT endpoint.
 - `ds3`: feature reports 01, EF, F2, F5, F7, F8 and F4 (enable); output report 1 for motors and LEDs.
 - `ds4`: feature reports 02 (calibration), 12 (addresses), 81, A3 (firmware); output report 05 for motors and light bar. The console authentication reports F0–F2 are not implemented.
@@ -93,7 +115,7 @@ The DualShock 4 and DualSense calibration reports advertise 16 LSB per °/s and 
 
 ## USB layer
 
-`firmware/usb/usb_link.c` answers TinyUSB's descriptor callbacks from the active personality. HID personalities use TinyUSB's HID class; `xinput` and `xid` use a small application class driver that opens one interrupt IN and one interrupt OUT endpoint and forwards control requests. Reports are sent no faster than each personality's `interval_ms`, and only when the previous transfer has completed. A pressed button requests remote wake-up while the host is suspended.
+`firmware/usb/usb_link.c` answers TinyUSB's descriptor callbacks from the active personality. HID personalities use TinyUSB's HID class; `xinput` and `xid` use a small application class driver that opens an interrupt IN and an interrupt OUT endpoint per vendor interface and forwards control requests. With several players, the n-th HID instance or the n-th vendor interface with endpoints is player n, and each pad keeps its own report timing. The receiver announces controller presence on a slot's IN endpoint before any data, and resends it when the host asks. Reports are sent no faster than each personality's `interval_ms`, and only when the previous transfer has completed. A pressed button requests remote wake-up while the host is suspended.
 
 ## Bluetooth LE
 

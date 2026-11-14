@@ -43,9 +43,9 @@ static void build(const pad_state_t *in, uint32_t now_ms, uint8_t *out) {
     memcpy(last, out, XID_LEN);
 }
 
-static void rumble(const uint8_t *buf, uint16_t len) {
+static void rumble(uint8_t player, const uint8_t *buf, uint16_t len) {
     // 00 06 left(lo hi) right(lo hi); left is the strong motor.
-    if (len >= 6 && buf[1] == 0x06) pad_set_rumble(buf[3], buf[5]);
+    if (len >= 6 && buf[1] == 0x06) pad_set_rumble(player, buf[3], buf[5]);
 }
 
 static int control_in(const pad_setup_t *s, uint8_t *buf, uint16_t cap) {
@@ -69,7 +69,7 @@ static int control_in(const pad_setup_t *s, uint8_t *buf, uint16_t cap) {
 
 static bool control_out(const pad_setup_t *s, const uint8_t *buf, uint16_t len) {
     if (s->bmRequestType != 0x21 || s->bRequest != 0x09 || s->wValue != 0x0200) return false;
-    rumble(buf, len);
+    rumble(0, buf, len);
     return true;
 }
 

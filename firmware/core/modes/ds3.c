@@ -68,15 +68,15 @@ static uint16_t get_report(uint8_t type, uint8_t id, uint8_t *buf, uint16_t cap)
     return size;
 }
 
-static void set_report(uint8_t type, uint8_t id, const uint8_t *buf, uint16_t len) {
+static void set_report(uint8_t player, uint8_t type, uint8_t id, const uint8_t *buf, uint16_t len) {
     if (type == PAD_REPORT_FEATURE) {
         if (id == 0xef && len > 6) ef_byte = buf[6];
         if (id == 0xf5 && len >= 7) memcpy(host_addr, buf + 1, 6);
         if (id == 0xf4 && len >= 2 && buf[0] == 0x42) operational = true;
     }
     if (id == 1 && len >= 10) {
-        pad_set_rumble(buf[4], buf[2] ? 255 : 0);   // large motor is analog, small is on/off
-        pad_set_led((buf[9] >> 1) & 0x0f);
+        pad_set_rumble(player, buf[4], buf[2] ? 255 : 0);   // large motor is analog, small is on/off
+        pad_set_led(player, (buf[9] >> 1) & 0x0f);
     }
 }
 

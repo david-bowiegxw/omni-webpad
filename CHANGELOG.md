@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.5.0 — several players
+
+### Players
+
+- One board can be up to four controllers, one per phone (**Players** in the settings, or `POST /api/config?players=N`).
+- Xbox 360 mode with 2–4 players presents an Xbox 360 Wireless Receiver (045E:0719): a controller connects when a phone takes that player and disconnects when it leaves.
+- Generic gamepad mode with 2–4 players presents that many HID gamepads.
+- Each phone gets a coloured P1–P4 badge. Rumble, LEDs and light bar go only to the phone of that player. A phone that reconnects within 4 s keeps its player; phones that find every player taken wait and are seated automatically.
+- PlayStation, Switch, original Xbox and Bluetooth modes stay one pad per board.
+
+### Protocol
+
+- `/ws?id=` and `/state?id=` carry a per-browser token. Status frames grow to 11 bytes (player, player count); `/state` replies include `p` and `n`; `/api/info` lists `players`, `players_setting` and each mode's `max_players`; `/api/status` reports every pad.
+- Settings saved by 0.4 load unchanged as one player.
+
+### Fixed
+
+- Settings buttons and fields used an invalid `font` shorthand and fell back to the browser's default font.
+
 ## 0.4.0 — OmniWebPad
 
 The project is renamed from *PS3 Pico W Webpad* and is no longer tied to one console or one board.

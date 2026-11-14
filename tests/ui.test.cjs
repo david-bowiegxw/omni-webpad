@@ -16,16 +16,24 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 function startSimulator(port, links) {
   const settings = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'owp-')), 'settings.bin');
   const child = spawn(sim, ['--port', String(port), '--links', links, '--settings', settings], {stdio: ['pipe', 'pipe', 'inherit']});
-  const state = {child, reports: [], events: [], mode: '', url: 'http://127.0.0.1:' + port + '/'};
+  const state = {child, reports: [], pads: {}, presence: {}, events: [], mode: '', players: 1, url: 'http://127.0.0.1:' + port + '/'};
   let pending = '';
   child.stdout.on('data', chunk => {
     pending += chunk;
     const lines = pending.split('\n');
     pending = lines.pop();
     for (const line of lines) {
-      const [kind, mode, hex] = line.split(' ');
-      if (kind === 'REPORT') state.reports.push(Buffer.from(hex, 'hex'));
-      else { state.events.push(kind); if (kind === 'READY') state.mode = mode; }
+      const [kind, mode, hex, extra] = line.split(' ');
+      if (kind === 'REPORT') {
+        const report = Buffer.from(hex, 'hex'), player = +extra || 1;
+        if (player === 1) state.reports.push(report);
+        (state.pads[player] = state.pads[player] || []).push(report);
+      } else if (kind === 'PRESENCE') state.presence[mode] = hex === '1';
+      else {
+        state.events.push(kind);
+        if (kind === 'READY') { state.mode = mode; state.players = +extra || 1; }
+        if (kind === 'REBOOT') { state.pads = {}; state.presence = {}; }
+      }
     }
   });
   state.last = () => state.reports.at(-1);
@@ -260,6 +268,66 @@ async function fallbackTests(browser, simulator) {
   await context.close();
 }
 
+async function multiplayerTests(browser, simulator) {
+  // Three players on an Xbox 360 receiver; a fourth phone waits for a seat.
+  const before = simulator.events.filter(e => e === 'REBOOT').length;
+  const response = await (await fetch(simulator.url + 'api/config?players=3', {method: 'POST'})).json();
+  assert(response.ok && response.reboot);
+  await until(() => simulator.events.filter(e => e === 'REBOOT').length === before + 1 && simulator.players === 3, 'restart with 3 players');
+  const phones = [];
+  for (let i = 0; i < 4; i++) {
+    const context = await browser.newContext({viewport: {width: 844, height: 390}, hasTouch: true, deviceScaleFactor: shots ? 2 : 1});
+    await context.addInitScript(() => { window.__vibrations = []; navigator.vibrate = p => { window.__vibrations.push(p); return true; }; });
+    const page = await context.newPage();
+    const errors = [];
+    page.on('pageerror', e => errors.push(String(e)));
+    await page.goto(simulator.url);
+    await page.locator('#status[data-link="host"][data-players="3"]').waitFor();
+    phones.push({context, page, errors});
+  }
+  const badge = page => page.evaluate(() => document.querySelector('#player').textContent);
+  for (let i = 0; i < 3; i++) await until(async () => await badge(phones[i].page) === 'P' + (i + 1), 'phone ' + (i + 1) + ' is P' + (i + 1));
+  await until(async () => await badge(phones[3].page) === '–', 'fourth phone waits');
+  assert.match(await phones[3].page.locator('#statusText').textContent(), /All 3 players taken/);
+  await until(() => simulator.presence[1] && simulator.presence[2] && simulator.presence[3], 'three controllers connected');
+
+  // Input from phone 2 reaches pad 2 only (receiver: buttons at byte 7, A = 0x10).
+  const tap = async (page, selector) => {
+    const b = await page.locator(selector).boundingBox();
+    await page.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2);
+  };
+  const p1 = simulator.pads[1].length;
+  await tap(phones[1].page, '#face .south');
+  await until(() => (simulator.pads[2] || []).some(r => r[7] === 0x10), 'phone 2 presses A on pad 2');
+  assert(simulator.pads[1].slice(p1).every(r => r[7] === 0), 'pad 1 untouched');
+
+  // Rumble for pad 3 vibrates phone 3 only.
+  simulator.child.stdin.write('p3 rumble 200 0\n');
+  await phones[2].page.locator('#status.rumble').waitFor();
+  assert(!(await phones[0].page.evaluate(() => document.querySelector('#status').classList.contains('rumble'))));
+  simulator.child.stdin.write('p3 rumble 0 0\n');
+
+  // Settings show the player count for this controller type.
+  await phones[0].page.locator('#menu').tap();
+  assert.equal(await phones[0].page.locator('#playersSeg button.on').textContent(), '3');
+  assert.equal(await phones[0].page.locator('#playersSeg button').count(), 4);
+  if (shots) { await phones[0].page.locator('#playersTitle, [data-t="playersTitle"]').first().evaluate(el => el.scrollIntoView({block: 'center'})); await sleep(100); await phones[0].page.screenshot({path: path.join(root, 'docs/players.png')}); }
+  await phones[0].page.locator('#back').tap();
+  if (shots) await phones[1].page.screenshot({path: path.join(root, 'docs/controller-p2.png')});
+
+  // Phone 1 leaves for good: after the hold the waiting phone becomes P1.
+  await phones[0].context.close();
+  await until(async () => await badge(phones[3].page) === 'P1', 'waiting phone takes P1', 9000);
+  await tap(phones[3].page, '#face .east');
+  await until(() => simulator.pads[1].some(r => r[7] === 0x20), 'new P1 presses B on pad 1');
+  for (const phone of phones.slice(1)) { assert.deepEqual(phone.errors, []); await phone.context.close(); }
+
+  // Back to a single pad for whatever runs next.
+  await fetch(simulator.url + 'api/config?players=1', {method: 'POST'});
+  await until(() => simulator.events.filter(e => e === 'REBOOT').length === before + 2 && simulator.players === 1, 'restart with 1 player');
+  console.log('multiplayer: 3 receiver pads, waiting phone, per-player input and rumble, seat hand-over PASS');
+}
+
 (async () => {
   if (!fs.existsSync(sim)) throw new Error('simulator not built: ' + sim + ' (see README, "Develop")');
   const simulator = startSimulator(18787, 'usb');
@@ -277,6 +345,7 @@ async function fallbackTests(browser, simulator) {
     console.log('connection slots: 12 parked sockets do not block a new request PASS');
     await settingsTests(browser, simulator);
     await fallbackTests(browser, simulator);
+    await multiplayerTests(browser, simulator);
     const info = await (await fetch(bleOnly.url + 'api/info')).json();
     assert.equal(info.mode, 'ble');
     assert.deepEqual(info.modes.filter(m => m.available).map(m => m.id), ['ble']);

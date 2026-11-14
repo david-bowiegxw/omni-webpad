@@ -54,6 +54,13 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 #leds i { width: 5px; height: 5px; border-radius: 50%; background: #2b3444; }
 #leds i.on { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
 #status.rumble { border-color: var(--warn); }
+#player { display: none; flex: none; min-width: 26px; height: 20px; padding: 0 5px; border-radius: 6px; font-size: 11px; font-weight: 750; line-height: 20px;
+  text-align: center; color: #0b0e14; background: var(--pc, var(--muted)); }
+#status[data-players] #player { display: block; }
+#status[data-seat="none"] #player { background: transparent; color: var(--warn); border: 1px solid var(--warn); line-height: 18px; }
+#status[data-player="1"] { --pc: #5b8cff; } #status[data-player="2"] { --pc: #ff5d6c; }
+#status[data-player="3"] { --pc: #3ccf7e; } #status[data-player="4"] { --pc: #ff79c6; }
+#status[data-players] { border-color: var(--pc, var(--line)); }
 
 /* Centre column */
 .system { top: 84px; height: 40px; font-size: 11px; border-radius: 20px; }
@@ -107,7 +114,7 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 #sheet h3 { margin: 18px 0 8px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
 #sheet p { margin: 6px 0; font-size: 12px; line-height: 1.5; color: var(--muted); }
 .btn2 { border: 1px solid var(--line); background: var(--key); color: var(--text); border-radius: 10px; padding: 0 14px; height: 38px;
-  font: 600 13px inherit; touch-action: manipulation; cursor: pointer; }
+  font-family: inherit; font-size: 13px; font-weight: 600; touch-action: manipulation; cursor: pointer; }
 .btn2.primary { background: #2f5f98; border-color: #7fb4f0; }
 .btn2.danger { border-color: #8d4850; color: #ffb3b8; }
 .btn2:disabled { opacity: .45; }
@@ -124,9 +131,9 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 .row > label { flex: 1 1 200px; display: flex; align-items: center; gap: 10px; font-size: 13px; }
 .row input[type=range] { flex: 1; touch-action: pan-x; }
 .row input[type=text] { flex: 1; min-width: 0; height: 38px; border-radius: 10px; border: 1px solid var(--line); background: #0c1017; color: var(--text);
-  padding: 0 10px; font: 14px inherit; -webkit-user-select: text; user-select: text; touch-action: manipulation; }
+  padding: 0 10px; font-family: inherit; font-size: 14px; -webkit-user-select: text; user-select: text; touch-action: manipulation; }
 .seg { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-.seg button { border: 0; background: transparent; color: var(--muted); height: 36px; padding: 0 12px; font: 600 12px inherit; touch-action: manipulation; cursor: pointer; }
+.seg button { border: 0; background: transparent; color: var(--muted); height: 36px; padding: 0 12px; font-family: inherit; font-size: 12px; font-weight: 600; touch-action: manipulation; cursor: pointer; }
 .seg button.on { background: var(--key-hi); color: var(--text); }
 #notice { margin-top: 8px; font-size: 12px; min-height: 18px; color: var(--warn); }
 #diag { margin: 8px 0 0; padding: 8px; border-radius: 8px; background: #0c1017; border: 1px solid #252d3b; font: 10px/1.45 ui-monospace, Menlo, Consolas, monospace;
@@ -142,7 +149,7 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 
   <div id="bar">
     <div class="key" id="fullscreen" role="button" aria-label="Fullscreen">⛶</div>
-    <div id="status" role="status" data-link="none"><span id="dot"></span><span id="statusText"></span><span id="leds"><i></i><i></i><i></i><i></i></span></div>
+    <div id="status" role="status" data-link="none"><span id="dot"></span><span id="player"></span><span id="statusText"></span><span id="leds"><i></i><i></i><i></i><i></i></span></div>
     <div class="key" id="menu" role="button" aria-label="Settings">⚙</div>
   </div>
 
@@ -171,6 +178,10 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
     <h3 data-t="modeTitle"></h3>
     <div class="modes" id="modes"></div>
     <div class="row"><button class="btn2 primary" id="applyMode" disabled data-t="applyMode"></button><span id="modeHint" style="flex:1;font-size:12px;color:var(--muted)"></span></div>
+
+    <h3 data-t="playersTitle"></h3>
+    <div class="row"><div class="seg" id="playersSeg"></div><span id="playersHint" style="flex:1 1 200px;font-size:12px;color:var(--muted)"></span></div>
+    <p id="playersNote"></p>
 
     <h3 data-t="feelTitle"></h3>
     <div class="row"><label><span data-t="travel"></span><input id="travel" type="range" min="20" max="56" value="36"><output id="travelValue">36</output></label></div>
@@ -217,6 +228,11 @@ const TEXT = {
     select: {ds3: 'SELECT', ds4: 'SHARE', dualsense: 'CREATE', xinput: 'VIEW', xid: 'BACK', switch: '−', '*': 'SELECT'},
     start: {ds3: 'START', ds4: 'OPTIONS', dualsense: 'OPTIONS', xinput: 'MENU', xid: 'START', switch: '+', '*': 'START'},
     misc: {ds4: 'TOUCHPAD', dualsense: 'TOUCHPAD', switch: 'CAPTURE', hid: 'EXTRA', ble: 'EXTRA'},
+    playersTitle: 'Players', full: n => 'All ' + n + ' players taken', playersSingle: 'This controller type is one pad per board. For several players, use one board per player.',
+    playersNote: 'Each phone gets the next free player. A phone that reconnects within a few seconds keeps its player; when a player stays away, a waiting phone takes over.',
+    playersMode: {xinput: n => 'Shows up as an Xbox 360 Wireless Receiver: each phone that joins switches on the next of ' + n + ' controllers.',
+      hid: n => 'The host sees ' + n + ' separate gamepads.', '*': n => n + ' pads.'},
+    playersChange: 'Tap a number to change; the board restarts.',
   },
   zh: {
     back: '返回手柄', modeTitle: '手柄类型', applyMode: '切换并重启', feelTitle: '手感', travel: '摇杆行程',
@@ -233,6 +249,11 @@ const TEXT = {
     select: {ds3: 'SELECT', ds4: 'SHARE', dualsense: 'CREATE', xinput: 'VIEW', xid: 'BACK', switch: '−', '*': 'SELECT'},
     start: {ds3: 'START', ds4: 'OPTIONS', dualsense: 'OPTIONS', xinput: 'MENU', xid: 'START', switch: '+', '*': 'START'},
     misc: {ds4: '触摸板', dualsense: '触摸板', switch: '截图', hid: '附加键', ble: '附加键'},
+    playersTitle: '玩家人数', full: n => n + ' 个玩家位置已满', playersSingle: '这种手柄类型一块开发板只能模拟一个手柄；多人游戏请每人用一块开发板。',
+    playersNote: '每台手机按连接顺序成为下一个空闲玩家。几秒内重新连接的手机保留原来的位置；玩家离开后，正在等待的手机会自动接上。',
+    playersMode: {xinput: n => '主机看到的是一个 Xbox 360 无线接收器：每加入一台手机，就接通 ' + n + ' 个手柄中的下一个。',
+      hid: n => '主机会看到 ' + n + ' 个独立的手柄。', '*': n => n + ' 个手柄。'},
+    playersChange: '点数字即可更改，开发板会重启。',
   },
 };
 const SKIN = {
@@ -253,6 +274,9 @@ let lang = store.get('lang', /^zh/i.test(navigator.language || '') ? 'zh' : 'en'
 let travel = +store.get('travel', 36), layoutChoice = store.get('layout', 'auto');
 let rumbleOn = store.get('rumble', '1') === '1', tickOn = store.get('tick', '0') === '1';
 let info = null, modeId = '', pickedMode = '';
+// A random id per browser so the board gives this phone its player back after a reconnect.
+let clientId = store.get('id', '');
+if (!/^[0-9a-f]{8}$/.test(clientId)) { clientId = (Math.random() * 0xffffffff >>> 0 | 1).toString(16).padStart(8, '0'); store.set('id', clientId); }
 let rotated = false, scale = 1, offsetX = 0, offsetY = 0, padWidth = 800;
 let enabled = true;
 
@@ -388,6 +412,7 @@ let ws = null, wsEverOpened = false, wsFailures = 0, polling = false, pollBusy =
 let seq = 0, lastSent = 0, lastSentMask = -1, sendTimer = 0, dirty = false;
 let pingToken = 0, pingSentAt = 0, lastStatusAt = 0, rtt = null;
 let boardOnline = false, hostLinked = false, feedback = {strong: 0, weak: 0, led: 0, color: [0, 0, 0]};
+let seat = {player: 0, players: 1};          // player 0-based, -1 = no free seat
 let rumbleTimer = 0, restarting = false;
 
 function frame() {
@@ -418,11 +443,12 @@ async function poll() {
   pollBusy = true; dirty = false;
   const started = performance.now(), control = new AbortController(), timeout = setTimeout(() => control.abort(), 400);
   try {
-    const q = '/state?m=' + mask() + '&lx=' + axes.lx + '&ly=' + axes.ly + '&rx=' + axes.rx + '&ry=' + axes.ry;
+    const q = '/state?m=' + mask() + '&lx=' + axes.lx + '&ly=' + axes.ly + '&rx=' + axes.rx + '&ry=' + axes.ry + '&id=' + clientId;
     const response = await fetch(q, {cache: 'no-store', signal: control.signal});
     if (!response.ok) throw Error('HTTP');
     const data = await response.json();
     rtt = performance.now() - started; lastSent = performance.now();
+    if (typeof data.p === 'number') seat = {player: data.p, players: data.n || 1};
     onStatus(true, !!data.usb, data.l, data.r, feedback.led, feedback.color);
   } catch (_) { onStatus(false, false, 0, 0, 0, [0, 0, 0]); }
   finally { clearTimeout(timeout); pollBusy = false; if (dirty) setTimeout(poll, 0); }
@@ -430,7 +456,7 @@ async function poll() {
 function connect() {
   if (polling) return;
   let socket;
-  try { socket = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws'); }
+  try { socket = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws?id=' + clientId); }
   catch (_) { polling = true; return; }
   ws = socket;
   socket.binaryType = 'arraybuffer';
@@ -439,6 +465,7 @@ function connect() {
     const d = new Uint8Array(e.data);
     if (d[0] !== 0x82 || d.length < 9) return;
     lastStatusAt = performance.now();
+    if (d.length >= 11) seat = {player: d[9] === 255 ? -1 : d[9], players: d[10] || 1};
     if (d[1] === pingToken && pingSentAt) { rtt = lastStatusAt - pingSentAt; pingSentAt = 0; }
     onStatus(true, !!(d[2] & 1), d[3], d[4], d[5], [d[6], d[7], d[8]]);
   };
@@ -477,10 +504,15 @@ function onStatus(online, linked, strong, weak, led, color) {
 function paintStatus() {
   const status = $('status'), mode = info && info.modes.find(m => m.id === modeId);
   status.dataset.link = !boardOnline ? 'none' : hostLinked ? 'host' : 'board';
+  const multi = boardOnline && seat.players > 1;
+  if (multi) { status.dataset.players = seat.players; status.dataset.player = seat.player + 1; status.dataset.seat = seat.player < 0 ? 'none' : 'held'; }
+  else { delete status.dataset.players; delete status.dataset.player; delete status.dataset.seat; }
+  $('player').textContent = multi ? (seat.player < 0 ? '–' : 'P' + (seat.player + 1)) : '';
   status.classList.toggle('rumble', !!(feedback.strong || feedback.weak));
   const text = $('statusText');
   text.textContent = '';
   if (!boardOnline) text.textContent = wsEverOpened || polling ? t('reconnecting') : t('connecting');
+  else if (multi && seat.player < 0) text.textContent = t('full')(seat.players);
   else {
     const name = document.createElement('b');
     name.textContent = mode ? mode.name : '…';
@@ -537,6 +569,23 @@ function renderModes() {
   $('applyMode').disabled = !pickedMode;
   $('modeHint').textContent = pickedMode ? t('pickHint') : '';
   $('about').textContent = info ? 'OmniWebPad ' + info.version + ' · ' + info.board : '';
+  renderPlayers();
+}
+function renderPlayers() {
+  const mode = info && info.modes.find(m => m.id === modeId), max = mode ? mode.max_players || 1 : 1, seg = $('playersSeg');
+  const current = info ? info.players || 1 : 1, setting = info ? info.players_setting || current : current;
+  seg.textContent = '';
+  seg.parentElement.style.display = max < 2 ? 'none' : '';
+  for (let n = 1; n <= max; n++) {
+    const b = document.createElement('button');
+    b.textContent = n; b.dataset.v = n;
+    b.classList.toggle('on', n === Math.min(setting, max));
+    b.onclick = () => { if (n !== current) configure('players=' + n); };
+    seg.append(b);
+  }
+  const describe = t('playersMode')[modeId] || t('playersMode')['*'];
+  $('playersHint').textContent = max < 2 ? '' : (current > 1 ? describe(current) + ' ' : '') + t('playersChange');
+  $('playersNote').textContent = max < 2 ? t('playersSingle') : t('playersNote');
 }
 function notice(text) { $('notice').textContent = text; }
 async function configure(query) {

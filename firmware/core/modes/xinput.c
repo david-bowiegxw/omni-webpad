@@ -35,14 +35,72 @@ static void build(const pad_state_t *in, uint32_t now_ms, uint8_t *out) {
     pad_put_le16(out + 12, (uint16_t)pad_axis_s16(in->ry, true));
 }
 
-static void out_packet(const uint8_t *buf, uint16_t len) {
-    if (len >= 5 && buf[0] == 0x00 && buf[1] == 0x08) pad_set_rumble(buf[3], buf[4]);
+static void out_packet(uint8_t player, const uint8_t *buf, uint16_t len) {
+    if (len >= 5 && buf[0] == 0x00 && buf[1] == 0x08) pad_set_rumble(player, buf[3], buf[4]);
     if (len >= 3 && buf[0] == 0x01 && buf[1] == 0x03) {
         // LED animation index: 2..5 blink then hold player 1..4, 6..9 hold.
         uint8_t pattern = buf[2];
-        pad_set_led(pattern >= 2 && pattern <= 9 ? (uint8_t)(1u << ((pattern - 2) & 3)) : 0);
+        pad_set_led(player, pattern >= 2 && pattern <= 9 ? (uint8_t)(1u << ((pattern - 2) & 3)) : 0);
     }
 }
+
+// ---------------------------------------------------------------- wireless receiver
+// With more than one player the board becomes an Xbox 360 Wireless Receiver
+// for Windows (045E:0719): one vendor interface per controller slot, and a
+// controller "connects" to its slot when a phone takes that player. Data
+// packets wrap the wired report behind a four byte header; presence packets
+// (08 80 / 08 00) announce controllers. Unlike the real receiver the device
+// class is 0 and the headset interfaces are left out, so each slot is its
+// own composite function and fits the endpoint budget of every board.
+
+#define RX_LEN 29
+#define RX_SLOTS 4
+#define RX_SLOT(i) \
+    9, 0x04, i, 0, 2, 0xff, 0x5d, 0x81, 0, \
+    20, 0x22, 0x00, 0x01, 0x13, 0x81, 0x1d, 0x00, 0x17, 0x01, 0x02, 0x08, 0x13, 0x01, 0x0c, 0x00, 0x0c, 0x01, 0x02, 0x08, \
+    7, 0x05, 0x81 + i, 0x03, USB_LE16(32), 1, \
+    7, 0x05, 0x01 + i, 0x03, USB_LE16(32), 8
+#define RX_CONFIG_LEN (9 + RX_SLOTS * 43)
+
+static const uint8_t rx_device_desc[] = {USB_DEVICE_DESC(0x0200, 0x00, 0x00, 0x00, 0x045e, 0x0719, 0x0100, 1, 2, 3)};
+static const uint8_t rx_config_desc[] = {
+    9, 0x02, USB_LE16(RX_CONFIG_LEN), RX_SLOTS, 1, 0, 0xa0, 250,
+    RX_SLOT(0), RX_SLOT(1), RX_SLOT(2), RX_SLOT(3),
+};
+
+static void rx_build(const pad_state_t *in, uint32_t now_ms, uint8_t *out) {
+    uint8_t wired[XINPUT_LEN];
+    build(in, now_ms, wired);
+    memset(out, 0, RX_LEN);
+    out[1] = 0x01; out[3] = 0xf0; out[5] = 0x13;
+    memcpy(out + 6, wired + 2, XINPUT_LEN - 2);
+}
+
+static uint8_t rx_presence(bool attached, uint8_t *out) {
+    out[0] = 0x08;
+    out[1] = attached ? 0x80 : 0x00;
+    return 2;
+}
+
+static void rx_out(uint8_t player, const uint8_t *buf, uint16_t len) {
+    if (len < 4) return;
+    if (buf[0] == 0x08 && buf[1] == 0x00 && buf[2] == 0x0f && buf[3] == 0xc0) pad_presence_request(player);   // inquiry
+    else if (buf[0] == 0x00 && buf[1] == 0x01 && buf[2] == 0x0f && buf[3] == 0xc0 && len >= 7) pad_set_rumble(player, buf[5], buf[6]);
+    else if (buf[0] == 0x00 && buf[1] == 0x00 && buf[2] == 0x08 && (buf[3] & 0xf0) == 0x40) {
+        uint8_t pattern = buf[3] & 0x0f;   // same numbering as the wired pad
+        pad_set_led(player, pattern >= 2 && pattern <= 9 ? (uint8_t)(1u << ((pattern - 2) & 3)) : 0);
+    }
+}
+
+const pad_mode_t mode_xinput_rx = {
+    .id = "xinput", .name = "Xbox 360 Wireless Receiver", .family = "xbox",
+    .hosts = "Windows, Steam, Linux, Android",
+    .link = PAD_LINK_USB_RAW,
+    .device_desc = rx_device_desc, .config_desc = rx_config_desc, .config_len = sizeof(rx_config_desc),
+    .manufacturer = "\xa9Microsoft", .product = "Xbox 360 Wireless Receiver for Windows", .serial = "08FEC93",
+    .report_len = RX_LEN, .interval_ms = 4, .players = RX_SLOTS,
+    .build = rx_build, .out = rx_out, .presence = rx_presence,
+};
 
 const pad_mode_t mode_xinput = {
     .id = "xinput", .name = "Xbox 360", .family = "xbox",
@@ -51,5 +109,5 @@ const pad_mode_t mode_xinput = {
     .device_desc = device_desc, .config_desc = config_desc, .config_len = sizeof(config_desc),
     .manufacturer = "Microsoft", .product = "Controller", .serial = "08FEC93",
     .report_len = XINPUT_LEN, .interval_ms = 4,
-    .build = build, .out = out_packet,
+    .build = build, .out = out_packet, .multi = &mode_xinput_rx,
 };

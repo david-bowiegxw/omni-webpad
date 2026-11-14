@@ -89,7 +89,7 @@ static void wifi_start(void) {
     config.ap.ssid_len = (uint8_t)ssid_len;
     strlcpy((char *)config.ap.password, app_settings.pass, sizeof(config.ap.password));
     config.ap.channel = 6;
-    config.ap.max_connection = 4;
+    config.ap.max_connection = 6;   // four players plus a spare (a waiting phone, a laptop)
     config.ap.authmode = WIFI_AUTH_WPA2_PSK;
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &config));

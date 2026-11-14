@@ -5,7 +5,7 @@
 #include "device/usbd_pvt.h"
 #include <string.h>
 
-static uint32_t last_send;
+static uint32_t last_send[PAD_MAX_PLAYERS];
 
 // TinyUSB 0.21 added an "in interrupt" argument to usbd_edpt_xfer().
 #if TUSB_VERSION_NUMBER >= 2100
@@ -22,8 +22,10 @@ static bool is_raw(void) { return app_mode && app_mode->link == PAD_LINK_USB_RAW
 uint8_t const *tud_descriptor_device_cb(void) { return app_mode->device_desc; }
 
 uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
+    static uint8_t built[PAD_CONFIG_MAX];
     (void)index;
-    return app_mode->config_desc;
+    if (app_mode->config_desc) return app_mode->config_desc;
+    return app_mode->config(app_players, built, sizeof(built)) ? built : NULL;
 }
 
 uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
@@ -62,14 +64,13 @@ void tud_umount_cb(void) {
 // ---------------------------------------------------------------- HID class
 
 uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t id, hid_report_type_t type, uint8_t *buffer, uint16_t len) {
-    (void)instance;
+    (void)instance;   // feature reports describe the device, not a player
     uint16_t n = app_mode->get_report ? app_mode->get_report((uint8_t)type, id, buffer, len) : 0;
     if (type == HID_REPORT_TYPE_FEATURE) app_log("get %02X n=%u", id, n);
     return n;
 }
 
 void tud_hid_set_report_cb(uint8_t instance, uint8_t id, hid_report_type_t type, uint8_t const *buffer, uint16_t len) {
-    (void)instance;
     uint8_t kind = (uint8_t)type;
     // Reports arriving on the interrupt OUT endpoint still carry their ID.
     if (id == 0 && kind != PAD_REPORT_FEATURE) {
@@ -77,45 +78,56 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t id, hid_report_type_t type,
         if (app_mode->report_id && len) { id = buffer[0]; buffer++; len--; }
     }
     if (kind == PAD_REPORT_FEATURE) app_log("set %02X n=%u %02X", id, len, len ? buffer[0] : 0);
-    if (app_mode->set_report) app_mode->set_report(kind, id, buffer, len);
+    if (app_mode->set_report) app_mode->set_report(instance, kind, id, buffer, len);
 }
 
 // ---------------------------------------------------------------- raw class
-// One vendor interface with an interrupt IN and an interrupt OUT endpoint,
-// as used by the Xbox family.
+// Vendor interfaces with an interrupt IN and an interrupt OUT endpoint, as
+// used by the Xbox family. The n-th interface with endpoints is player n;
+// interfaces without endpoints are claimed and otherwise ignored.
 
-static uint8_t raw_ep_in, raw_ep_out;
+static uint8_t raw_ep_in[PAD_MAX_PLAYERS], raw_ep_out[PAD_MAX_PLAYERS], raw_count;
+static uint8_t announced;            // receiver slots announced as connected
 CFG_TUD_MEM_SECTION static struct {
-    TUD_EPBUF_DEF(in, 64);
-    TUD_EPBUF_DEF(out, 64);
+    TUD_EPBUF_DEF(in0, 64); TUD_EPBUF_DEF(in1, 64); TUD_EPBUF_DEF(in2, 64); TUD_EPBUF_DEF(in3, 64);
+    TUD_EPBUF_DEF(out0, 64); TUD_EPBUF_DEF(out1, 64); TUD_EPBUF_DEF(out2, 64); TUD_EPBUF_DEF(out3, 64);
     TUD_EPBUF_DEF(ctrl, 64);
 } raw_buf;
+static uint8_t *const raw_in[PAD_MAX_PLAYERS] = {raw_buf.in0, raw_buf.in1, raw_buf.in2, raw_buf.in3};
+static uint8_t *const raw_out[PAD_MAX_PLAYERS] = {raw_buf.out0, raw_buf.out1, raw_buf.out2, raw_buf.out3};
 
 static void raw_init(void) {}
 static bool raw_deinit(void) { return true; }
 
 static void raw_reset(uint8_t rhport) {
     (void)rhport;
-    raw_ep_in = raw_ep_out = 0;
+    memset(raw_ep_in, 0, sizeof(raw_ep_in));
+    memset(raw_ep_out, 0, sizeof(raw_ep_out));
+    raw_count = 0;
+    announced = 0;
 }
 
 static uint16_t raw_open(uint8_t rhport, tusb_desc_interface_t const *itf, uint16_t max_len) {
     if (!is_raw()) return 0;                 // let the HID class claim the interface
     uint16_t used = itf->bLength;
     uint8_t const *p = tu_desc_next(itf);
-    uint8_t found = 0;
+    uint8_t found = 0, player = raw_count;
+    if (itf->bNumEndpoints) {
+        if (player >= PAD_MAX_PLAYERS) return 0;
+        raw_count++;
+    }
     while (used < max_len && tu_desc_type(p) != TUSB_DESC_INTERFACE) {
         if (tu_desc_type(p) == TUSB_DESC_ENDPOINT && found < itf->bNumEndpoints) {
             tusb_desc_endpoint_t const *ep = (tusb_desc_endpoint_t const *)p;
             TU_ASSERT(usbd_edpt_open(rhport, ep), 0);
-            if (tu_edpt_dir(ep->bEndpointAddress) == TUSB_DIR_IN) raw_ep_in = ep->bEndpointAddress;
-            else raw_ep_out = ep->bEndpointAddress;
+            if (tu_edpt_dir(ep->bEndpointAddress) == TUSB_DIR_IN) raw_ep_in[player] = ep->bEndpointAddress;
+            else raw_ep_out[player] = ep->bEndpointAddress;
             found++;
         }
         used = (uint16_t)(used + tu_desc_len(p));
         p = tu_desc_next(p);
     }
-    if (raw_ep_out) EDPT_XFER(rhport, raw_ep_out, raw_buf.out, 64);
+    if (found && raw_ep_out[player]) EDPT_XFER(rhport, raw_ep_out[player], raw_out[player], 64);
     return used;
 }
 
@@ -143,9 +155,10 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
 }
 
 static bool raw_xfer(uint8_t rhport, uint8_t ep, xfer_result_t result, uint32_t bytes) {
-    if (ep == raw_ep_out) {
-        if (result == XFER_RESULT_SUCCESS && app_mode->out) app_mode->out(raw_buf.out, (uint16_t)bytes);
-        EDPT_XFER(rhport, raw_ep_out, raw_buf.out, 64);
+    for (uint8_t player = 0; player < raw_count; player++) {
+        if (ep != raw_ep_out[player]) continue;
+        if (result == XFER_RESULT_SUCCESS && app_mode->out) app_mode->out(player, raw_out[player], (uint16_t)bytes);
+        EDPT_XFER(rhport, raw_ep_out[player], raw_out[player], 64);
     }
     return true;
 }
@@ -166,10 +179,28 @@ usbd_class_driver_t const *usbd_app_driver_get_cb(uint8_t *count) {
     return &raw_driver;
 }
 
-static bool raw_send(const uint8_t *report, uint8_t len) {
-    if (!raw_ep_in || !usbd_edpt_claim(0, raw_ep_in)) return false;
-    memcpy(raw_buf.in, report, len);
-    return EDPT_XFER(0, raw_ep_in, raw_buf.in, len);
+static bool raw_ready(uint8_t player) {
+    return player < raw_count && raw_ep_in[player] && !usbd_edpt_busy(0, raw_ep_in[player]);
+}
+
+static bool raw_send(uint8_t player, const uint8_t *report, uint8_t len) {
+    if (!raw_ep_in[player] || !usbd_edpt_claim(0, raw_ep_in[player])) return false;
+    memcpy(raw_in[player], report, len);
+    return EDPT_XFER(0, raw_ep_in[player], raw_in[player], len);
+}
+
+// Wireless receivers: tell the host which slots hold a controller, when that
+// changes or when the host asks. Returns true when the endpoint was used.
+static bool announce(uint8_t player) {
+    uint8_t bit = (uint8_t)(1u << player), packet[8];
+    bool attached = player < app_players && (app_attached & bit);
+    bool due = ((announced & bit) != 0) != attached || (pad_presence_requests & bit);
+    if (!due || !raw_ready(player)) return false;
+    uint8_t len = app_mode->presence(attached, packet);
+    if (!raw_send(player, packet, len)) return false;
+    pad_presence_requests &= (uint8_t)~bit;
+    announced = attached ? (uint8_t)(announced | bit) : (uint8_t)(announced & ~bit);
+    return true;
 }
 
 // ---------------------------------------------------------------- reports
@@ -182,24 +213,37 @@ void usb_link_task(void) {
     if (tud_suspended()) {
         // Any pressed button wakes a sleeping host, like a real pad.
         static uint32_t last_wake;
-        pad_state_t peek;
-        app_next_state(&peek);
-        if (peek.buttons && now - last_wake >= 100) {
+        bool pressed = false;
+        for (uint8_t player = 0; player < app_players; player++) {
+            pad_state_t peek;
+            app_next_state(player, &peek);
+            pressed |= peek.buttons != 0;
+        }
+        if (pressed && now - last_wake >= 100) {
             last_wake = now;
             tud_remote_wakeup();
         }
         return;
     }
-    if (now - last_send < app_mode->interval_ms || !tud_ready()) return;
-    if (is_raw() ? (!raw_ep_in || usbd_edpt_busy(0, raw_ep_in)) : !tud_hid_ready()) return;
-    uint8_t report[PAD_REPORT_MAX];
-    pad_state_t state;
-    app_next_state(&state);
-    app_mode->build(&state, now, report);
-    bool sent = is_raw() ? raw_send(report, app_mode->report_len)
-                         : tud_hid_report(app_mode->report_id, report, app_mode->report_len);
-    if (sent) {
-        last_send = now;
-        app_reports_sent++;
+    if (!tud_ready()) return;
+    uint8_t slots = is_raw() ? raw_count : app_players;
+    for (uint8_t player = 0; player < slots && player < PAD_MAX_PLAYERS; player++) {
+        if (app_mode->presence) {
+            if (announce(player)) continue;
+            // An empty receiver slot sends nothing; a connected one sends its pad.
+            if (!(announced & (1u << player))) continue;
+        }
+        if (player >= app_players || now - last_send[player] < app_mode->interval_ms) continue;
+        if (is_raw() ? !raw_ready(player) : !tud_hid_n_ready(player)) continue;
+        uint8_t report[PAD_REPORT_MAX];
+        pad_state_t state;
+        app_next_state(player, &state);
+        app_mode->build(&state, now, report);
+        bool sent = is_raw() ? raw_send(player, report, app_mode->report_len)
+                             : tud_hid_n_report(player, app_mode->report_id, report, app_mode->report_len);
+        if (sent) {
+            last_send[player] = now;
+            app_reports_sent++;
+        }
     }
 }
