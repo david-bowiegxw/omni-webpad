@@ -12,11 +12,14 @@
 
 #define MAX_CLIENTS 8
 #define IDLE_TIMEOUT_MS 10000
+#define UNUSED_TIMEOUT_MS 3000    // connected but never sent a byte (browser preconnect)
+#define EVICT_GRACE_MS 300        // a connection this fresh is never evicted
+#define LISTEN_BACKLOG 16
 #define SEND_TIMEOUT_MS 2000
 
 typedef struct {
     int fd;                       // -1 = free
-    bool close_requested, failed;
+    bool close_requested, failed, used;
     uint32_t last_activity;
     server_conn_t conn;
 } client_t;
@@ -70,7 +73,7 @@ bool sock_net_start(uint16_t port, bool loopback_only) {
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     addr.sin_addr.s_addr = htonl(loopback_only ? INADDR_LOOPBACK : INADDR_ANY);
-    if (bind(listener, (struct sockaddr *)&addr, sizeof(addr)) < 0 || listen(listener, 4) < 0) {
+    if (bind(listener, (struct sockaddr *)&addr, sizeof(addr)) < 0 || listen(listener, LISTEN_BACKLOG) < 0) {
         close(listener);
         listener = -1;
         return false;
@@ -85,23 +88,29 @@ void sock_net_stop(void) {
     listener = -1;
 }
 
-static void accept_client(void) {
+// A free slot, or failing that the quietest plain HTTP connection that has
+// been idle past the grace period (browsers park spare sockets). NULL when
+// every slot is busy: the new connection then waits in the listen backlog.
+static client_t *find_slot(uint32_t now) {
+    client_t *stale = NULL;
+    for (unsigned i = 0; i < MAX_CLIENTS; i++) {
+        client_t *c = &clients[i];
+        if (c->fd < 0) return c;
+        if (c->conn.websocket || now - c->last_activity < EVICT_GRACE_MS) continue;
+        if (!stale || (!c->used && stale->used) ||
+            (c->used == stale->used && c->last_activity < stale->last_activity)) stale = c;
+    }
+    return stale;
+}
+
+static void accept_client(client_t *c) {
     int fd = accept(listener, NULL, NULL), yes = 1;
     if (fd < 0) return;
-    client_t *c = NULL, *stale = NULL;
-    for (unsigned i = 0; i < MAX_CLIENTS && !c; i++) {
-        if (clients[i].fd < 0) c = &clients[i];
-        else if (!clients[i].conn.websocket && (!stale || clients[i].last_activity < stale->last_activity)) stale = &clients[i];
-    }
-    if (!c && stale) {            // browsers park idle connections; a new one matters more
-        drop(stale);
-        c = stale;
-    }
-    if (!c) { close(fd); return; }
+    drop(c);
     fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
     c->fd = fd;
-    c->close_requested = c->failed = false;
+    c->close_requested = c->failed = c->used = false;
     c->last_activity = plat_millis();
     server_open(&c->conn, c);
 }
@@ -109,9 +118,15 @@ static void accept_client(void) {
 bool sock_net_poll(unsigned timeout_ms, int extra_fd) {
     fd_set readable;
     struct timeval wait = {(long)(timeout_ms / 1000), (long)(timeout_ms % 1000) * 1000};
-    int top = listener > extra_fd ? listener : extra_fd;
+    client_t *slot = find_slot(plat_millis());
+    bool listening = listener >= 0 && slot;
+    int top = listening && listener > extra_fd ? listener : extra_fd;
     FD_ZERO(&readable);
-    if (listener >= 0) FD_SET(listener, &readable);
+    if (!slot && timeout_ms > EVICT_GRACE_MS / 4) {   // re-check soon: a slot may become evictable
+        wait.tv_sec = 0;
+        wait.tv_usec = EVICT_GRACE_MS / 4 * 1000;
+    }
+    if (listening) FD_SET(listener, &readable);
     if (extra_fd >= 0) FD_SET(extra_fd, &readable);
     for (unsigned i = 0; i < MAX_CLIENTS; i++) {
         if (clients[i].fd < 0) continue;
@@ -120,8 +135,15 @@ bool sock_net_poll(unsigned timeout_ms, int extra_fd) {
     }
     if (select(top + 1, &readable, NULL, NULL, &wait) < 0) FD_ZERO(&readable);
 
-    uint32_t now = plat_millis();
-    if (listener >= 0 && FD_ISSET(listener, &readable)) accept_client();
+    if (listening && FD_ISSET(listener, &readable)) {
+        accept_client(slot);
+        while ((slot = find_slot(plat_millis())) != NULL) {      // drain the backlog while slots last
+            int before = slot->fd;
+            accept_client(slot);
+            if (slot->fd < 0 || slot->fd == before) break;
+        }
+    }
+    uint32_t now = plat_millis();   // after accepting: no slot may look older than it is
     for (unsigned i = 0; i < MAX_CLIENTS; i++) {
         client_t *c = &clients[i];
         if (c->fd < 0) continue;
@@ -130,12 +152,14 @@ bool sock_net_poll(unsigned timeout_ms, int extra_fd) {
             int n = (int)recv(c->fd, chunk, sizeof(chunk), 0);
             if (n > 0) {
                 c->last_activity = now;
+                c->used = true;
                 if (!server_feed(&c->conn, chunk, (unsigned)n)) c->failed = true;
             } else if (n == 0 || (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
                 c->failed = true;
             }
         }
-        if (c->failed || c->close_requested || now - c->last_activity > IDLE_TIMEOUT_MS) drop(c);
+        uint32_t idle = now - c->last_activity;
+        if (c->failed || c->close_requested || idle > IDLE_TIMEOUT_MS || (!c->used && idle > UNUSED_TIMEOUT_MS)) drop(c);
     }
     return extra_fd >= 0 && FD_ISSET(extra_fd, &readable);
 }
